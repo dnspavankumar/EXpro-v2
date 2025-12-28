@@ -38,9 +38,26 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true; // Keep channel open for async response
   }
 
-  if (message.type === 'GET_ALL_COOKIES') {
-    chrome.cookies.getAll({ url: message.url }, (cookies) => {
-      sendResponse({ cookies });
+  // Nuclear Mode coordination
+  if (message.type === 'NUCLEAR_MODE_CHECK') {
+    chrome.storage.local.get(['nuclearMode'], (result) => {
+      sendResponse({ nuclearMode: result.nuclearMode || null });
+    });
+    return true;
+  }
+
+  if (message.type === 'NUCLEAR_MODE_UPDATE') {
+    chrome.storage.local.set({ nuclearMode: message.data }, () => {
+      // Notify all tabs about Nuclear Mode change
+      chrome.tabs.query({}, (tabs) => {
+        tabs.forEach(tab => {
+          chrome.tabs.sendMessage(tab.id, {
+            type: 'NUCLEAR_MODE_UPDATED',
+            data: message.data
+          }).catch(() => {});
+        });
+      });
+      sendResponse({ success: true });
     });
     return true;
   }
@@ -162,3 +179,79 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 });
 
 console.log('Background service worker loaded');
+
+// Nuclear Mode: Block new tabs that aren't whitelisted
+chrome.tabs.onCreated.addListener(async (tab) => {
+  const result = await chrome.storage.local.get(['nuclearMode']);
+  const nuclearMode = result.nuclearMode;
+  
+  if (!nuclearMode || !nuclearMode.isActive || !nuclearMode.timerEndTime) {
+    return;
+  }
+
+  // Check if timer expired
+  if (Date.now() > nuclearMode.timerEndTime) {
+    return;
+  }
+
+  // Wait a bit for the tab to load its URL
+  setTimeout(async () => {
+    const updatedTab = await chrome.tabs.get(tab.id).catch(() => null);
+    if (!updatedTab || !updatedTab.url) return;
+
+    const url = new URL(updatedTab.url);
+    const domain = url.hostname.replace(/^www\./, '');
+
+    // Check if domain is whitelisted
+    const isWhitelisted = nuclearMode.whitelist.some(site => {
+      const cleanSite = site.replace(/^https?:\/\//, '').replace(/^www\./, '');
+      return domain.includes(cleanSite) || cleanSite.includes(domain);
+    });
+
+    // Block if not whitelisted (except chrome:// and extension pages)
+    if (!isWhitelisted && !url.protocol.startsWith('chrome') && !url.protocol.startsWith('about')) {
+      chrome.tabs.update(tab.id, {
+        url: 'data:text/html,<html><head><style>body{margin:0;padding:0;display:flex;align-items:center;justify-content:center;min-height:100vh;background:linear-gradient(135deg,#1F2937 0%,#111827 100%);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:white;text-align:center}</style></head><body><div><h1 style="font-size:36px;margin:0 0 16px 0">Nuclear Mode Active</h1><p style="font-size:18px;color:#9CA3AF">This website is not whitelisted. Tab will close in 3 seconds...</p></div><script>setTimeout(()=>window.close(),3000)</script></body></html>'
+      });
+      
+      // Close the tab after 3 seconds
+      setTimeout(() => {
+        chrome.tabs.remove(tab.id).catch(() => {});
+      }, 3000);
+    }
+  }, 500);
+});
+
+// Nuclear Mode: Block navigation to non-whitelisted sites
+chrome.webNavigation.onBeforeNavigate.addListener(async (details) => {
+  if (details.frameId !== 0) return; // Only main frame
+
+  const result = await chrome.storage.local.get(['nuclearMode']);
+  const nuclearMode = result.nuclearMode;
+  
+  if (!nuclearMode || !nuclearMode.isActive || !nuclearMode.timerEndTime) {
+    return;
+  }
+
+  // Check if timer expired
+  if (Date.now() > nuclearMode.timerEndTime) {
+    return;
+  }
+
+  const url = new URL(details.url);
+  const domain = url.hostname.replace(/^www\./, '');
+
+  // Check if domain is whitelisted
+  const isWhitelisted = nuclearMode.whitelist.some(site => {
+    const cleanSite = site.replace(/^https?:\/\//, '').replace(/^www\./, '');
+    return domain.includes(cleanSite) || cleanSite.includes(domain);
+  });
+
+  // Block if not whitelisted (except chrome:// and extension pages)
+  if (!isWhitelisted && !url.protocol.startsWith('chrome') && !url.protocol.startsWith('about') && !url.protocol.startsWith('data')) {
+    chrome.tabs.update(details.tabId, {
+      url: 'data:text/html,<html><head><style>body{margin:0;padding:0;display:flex;align-items:center;justify-content:center;min-height:100vh;background:linear-gradient(135deg,#1F2937 0%,#111827 100%);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:white;text-align:center}</style></head><body><div><h1 style="font-size:36px;margin:0 0 16px 0">Nuclear Mode Active</h1><p style="font-size:18px;color:#9CA3AF;margin-bottom:24px">This website is not whitelisted.</p><p style="font-size:14px;color:#6B7280">Only whitelisted sites are accessible during Nuclear Mode.</p></div></body></html>'
+    });
+  }
+});
+

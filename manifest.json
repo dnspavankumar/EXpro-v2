@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "Dev Productivity Suite",
+  "name": "ExPro",
   "version": "1.0.0",
   "description": "Developer tools, learning utilities, and productivity features for all browsers",
   "permissions": [

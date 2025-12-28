@@ -7,14 +7,14 @@ const DeveloperTools = ({ expanded, onToggle, toggles, onToggleChange }) => {
     <Section title="Developer Tools" expanded={expanded} onToggle={onToggle}>
       <Toggle
         label="GitHub Agent"
-        description="Integration hook (logic by teammate)"
+        description="Integration hook"
         enabled={toggles.githubAgent || false}
         onChange={(val) => onToggleChange('githubAgent', val)}
       />
       
       <Toggle
         label="AWS Agent"
-        description="Integration hook (logic by teammate)"
+        description="Integration hook"
         enabled={toggles.awsAgent || false}
         onChange={(val) => onToggleChange('awsAgent', val)}
       />

@@ -379,29 +379,18 @@ Color RGB: ${rgbColor}`;
 
 
 // ========== color-finder.js ==========
-// Color Finder Feature - Advanced Color Picker & Analyzer
+// Color Finder - ColorZilla-like eyedropper and color picker
 function initColorFinder() {
   const browserAPI = typeof browser !== 'undefined' ? browser : chrome;
   
   let panel = null;
   let eyedropperActive = false;
-  let currentColor = { r: 0, g: 0, b: 0, a: 1 };
+  let magnifier = null;
+  let canvas = null;
+  let ctx = null;
+  let currentColor = { r: 32, g: 165, b: 172, a: 1 };
   let colorHistory = [];
-  let pickedColors = [];
-
-  // Dragging state
-  let isDragging = false;
-  let dragStartX = 0;
-  let dragStartY = 0;
-  let panelStartX = 0;
-  let panelStartY = 0;
-
-  // Resizing state
-  let isResizing = false;
-  let resizeStartX = 0;
-  let resizeStartY = 0;
-  let panelStartWidth = 0;
-  let panelStartHeight = 0;
+  let samplingSize = 1; // 1x1, 3x3, 5x5, 11x11, 25x25
 
   // Color conversion functions
   const rgbToHex = (r, g, b) => {
@@ -412,13 +401,9 @@ function initColorFinder() {
   };
 
   const rgbToHsl = (r, g, b) => {
-    r /= 255;
-    g /= 255;
-    b /= 255;
-    const max = Math.max(r, g, b);
-    const min = Math.min(r, g, b);
+    r /= 255; g /= 255; b /= 255;
+    const max = Math.max(r, g, b), min = Math.min(r, g, b);
     let h, s, l = (max + min) / 2;
-
     if (max === min) {
       h = s = 0;
     } else {
@@ -430,24 +415,14 @@ function initColorFinder() {
         case b: h = ((r - g) / d + 4) / 6; break;
       }
     }
-
-    return {
-      h: Math.round(h * 360),
-      s: Math.round(s * 100),
-      l: Math.round(l * 100)
-    };
+    return { h: Math.round(h * 360), s: Math.round(s * 100), l: Math.round(l * 100) };
   };
 
   const rgbToHsv = (r, g, b) => {
-    r /= 255;
-    g /= 255;
-    b /= 255;
-    const max = Math.max(r, g, b);
-    const min = Math.min(r, g, b);
+    r /= 255; g /= 255; b /= 255;
+    const max = Math.max(r, g, b), min = Math.min(r, g, b);
     const d = max - min;
-    let h, s = max === 0 ? 0 : d / max;
-    const v = max;
-
+    let h, s = max === 0 ? 0 : d / max, v = max;
     if (max === min) {
       h = 0;
     } else {
@@ -457,130 +432,15 @@ function initColorFinder() {
         case b: h = ((r - g) / d + 4) / 6; break;
       }
     }
-
-    return {
-      h: Math.round(h * 360),
-      s: Math.round(s * 100),
-      v: Math.round(v * 100)
-    };
+    return { h: Math.round(h * 360), s: Math.round(s * 100), v: Math.round(v * 100) };
   };
 
   const rgbToCmyk = (r, g, b) => {
-    let c = 1 - (r / 255);
-    let m = 1 - (g / 255);
-    let y = 1 - (b / 255);
+    let c = 1 - (r / 255), m = 1 - (g / 255), y = 1 - (b / 255);
     let k = Math.min(c, m, y);
-    
-    if (k === 1) {
-      c = m = y = 0;
-    } else {
-      c = (c - k) / (1 - k);
-      m = (m - k) / (1 - k);
-      y = (y - k) / (1 - k);
-    }
-
-    return {
-      c: Math.round(c * 100),
-      m: Math.round(m * 100),
-      y: Math.round(y * 100),
-      k: Math.round(k * 100)
-    };
-  };
-
-  const getColorName = (r, g, b) => {
-    const colors = [
-      { name: 'Red', rgb: [255, 0, 0] },
-      { name: 'Orange', rgb: [255, 165, 0] },
-      { name: 'Yellow', rgb: [255, 255, 0] },
-      { name: 'Green', rgb: [0, 128, 0] },
-      { name: 'Blue', rgb: [0, 0, 255] },
-      { name: 'Purple', rgb: [128, 0, 128] },
-      { name: 'Pink', rgb: [255, 192, 203] },
-      { name: 'Brown', rgb: [165, 42, 42] },
-      { name: 'Black', rgb: [0, 0, 0] },
-      { name: 'White', rgb: [255, 255, 255] },
-      { name: 'Gray', rgb: [128, 128, 128] },
-      { name: 'Cyan', rgb: [0, 255, 255] },
-      { name: 'Magenta', rgb: [255, 0, 255] }
-    ];
-
-    let minDistance = Infinity;
-    let closestColor = 'Unknown';
-
-    colors.forEach(color => {
-      const distance = Math.sqrt(
-        Math.pow(r - color.rgb[0], 2) +
-        Math.pow(g - color.rgb[1], 2) +
-        Math.pow(b - color.rgb[2], 2)
-      );
-      if (distance < minDistance) {
-        minDistance = distance;
-        closestColor = color.name;
-      }
-    });
-
-    return closestColor;
-  };
-
-  const generateComplementary = (r, g, b) => {
-    return { r: 255 - r, g: 255 - g, b: 255 - b };
-  };
-
-  const generateAnalogous = (r, g, b) => {
-    const hsl = rgbToHsl(r, g, b);
-    const colors = [];
-    
-    for (let offset of [-30, 30]) {
-      const newH = (hsl.h + offset + 360) % 360;
-      colors.push(hslToRgb(newH, hsl.s, hsl.l));
-    }
-    
-    return colors;
-  };
-
-  const generateTriadic = (r, g, b) => {
-    const hsl = rgbToHsl(r, g, b);
-    const colors = [];
-    
-    for (let offset of [120, 240]) {
-      const newH = (hsl.h + offset) % 360;
-      colors.push(hslToRgb(newH, hsl.s, hsl.l));
-    }
-    
-    return colors;
-  };
-
-  const hslToRgb = (h, s, l) => {
-    h /= 360;
-    s /= 100;
-    l /= 100;
-    
-    let r, g, b;
-
-    if (s === 0) {
-      r = g = b = l;
-    } else {
-      const hue2rgb = (p, q, t) => {
-        if (t < 0) t += 1;
-        if (t > 1) t -= 1;
-        if (t < 1/6) return p + (q - p) * 6 * t;
-        if (t < 1/2) return q;
-        if (t < 2/3) return p + (q - p) * (2/3 - t) * 6;
-        return p;
-      };
-
-      const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
-      const p = 2 * l - q;
-      r = hue2rgb(p, q, h + 1/3);
-      g = hue2rgb(p, q, h);
-      b = hue2rgb(p, q, h - 1/3);
-    }
-
-    return {
-      r: Math.round(r * 255),
-      g: Math.round(g * 255),
-      b: Math.round(b * 255)
-    };
+    if (k === 1) { c = m = y = 0; } 
+    else { c = (c - k) / (1 - k); m = (m - k) / (1 - k); y = (y - k) / (1 - k); }
+    return { c: Math.round(c * 100), m: Math.round(m * 100), y: Math.round(y * 100), k: Math.round(k * 100) };
   };
 
   const copyToClipboard = (text, label) => {
@@ -591,518 +451,635 @@ function initColorFinder() {
   const showNotification = (message) => {
     const notif = document.createElement('div');
     notif.textContent = message;
-    notif.style.cssText = `
-      position: fixed;
-      left: 50%;
-      top: 20px;
-      transform: translateX(-50%);
-      background: #10B981;
-      color: white;
-      padding: 12px 24px;
-      border-radius: 6px;
-      font-size: 14px;
-      z-index: 10000000;
-      box-shadow: 0 4px 12px rgba(0,0,0,0.3);
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-    `;
+    notif.style.cssText = `position: fixed; left: 50%; top: 20px; transform: translateX(-50%); background: #10B981; color: white; padding: 12px 24px; border-radius: 6px; font-size: 14px; z-index: 10000000; box-shadow: 0 4px 12px rgba(0,0,0,0.3); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;`;
     document.body.appendChild(notif);
     setTimeout(() => notif.remove(), 2000);
   };
 
-  // Create panel
-  panel = document.createElement('div');
-  panel.id = 'color-finder-panel';
-  panel.style.cssText = `
-    position: fixed;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    width: 380px;
-    min-width: 350px;
-    min-height: 480px;
-    background: linear-gradient(135deg, #4A5568 0%, #3A4556 100%);
-    border-radius: 16px;
-    border: 1px solid #2D3748;
-    box-shadow: 0 20px 60px rgba(0,0,0,0.6);
-    z-index: 9999999;
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-    color: #E5E7EB;
-    overflow: hidden;
-    display: flex;
-    flex-direction: column;
-    padding: 16px;
-  `;
+  // Create magnifying glass for eyedropper
+  function createMagnifier() {
+    magnifier = document.createElement('div');
+    magnifier.style.cssText = `
+      position: fixed; width: 140px; height: 140px; border: 3px solid #2D3748; border-radius: 50%; 
+      pointer-events: none; z-index: 99999999; display: none; box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+      background: white; overflow: hidden;
+    `;
+    
+    canvas = document.createElement('canvas');
+    canvas.width = 140;
+    canvas.height = 140;
+    canvas.style.cssText = 'width: 100%; height: 100%; image-rendering: pixelated;';
+    ctx = canvas.getContext('2d', { willReadFrequently: true });
+    
+    magnifier.appendChild(canvas);
+    
+    // Crosshair
+    const crosshair = document.createElement('div');
+    crosshair.style.cssText = `
+      position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+      width: 20px; height: 20px; border: 2px solid #000; box-shadow: 0 0 0 1px #fff;
+      pointer-events: none;
+    `;
+    magnifier.appendChild(crosshair);
+    
+    document.body.appendChild(magnifier);
+  }
 
-  panel.innerHTML = `
-    <div id="color-header" style="display: flex; align-items: center; justify-content: flex-end; margin-bottom: 12px; cursor: move; user-select: none; padding: 4px 0;">
-      <button id="close-color-panel" style="background: rgba(255,255,255,0.1); border: none; color: #CBD5E0; cursor: pointer; font-size: 20px; padding: 0; width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; border-radius: 6px; transition: all 0.2s;">×</button>
-    </div>
+  // Get pixel color from screen
+  async function getPixelColor(x, y) {
+    try {
+      // Capture screenshot of area around cursor
+      const captureArea = {
+        x: Math.max(0, x - 70),
+        y: Math.max(0, y - 70),
+        width: 140,
+        height: 140
+      };
 
-    <!-- Pick Buttons -->
-    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 16px;">
-      <button id="pick-from-web-btn" style="background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.15); border-radius: 10px; padding: 14px 10px; cursor: pointer; transition: all 0.2s; display: flex; flex-direction: column; align-items: center; gap: 6px; color: #E5E7EB; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M7 17L17 7M17 7H7M17 7V17"/>
-        </svg>
-        Pick from Web
-      </button>
-      <button id="pick-from-image-btn" style="background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.15); border-radius: 10px; padding: 14px 10px; cursor: pointer; transition: all 0.2s; display: flex; flex-direction: column; align-items: center; gap: 6px; color: #E5E7EB; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <rect x="3" y="3" width="18" height="18" rx="2"/>
-          <circle cx="8.5" cy="8.5" r="1.5"/>
-          <path d="M21 15L16 10L5 21"/>
-        </svg>
-        Pick from Image
-      </button>
-    </div>
+      // Draw the area under cursor to canvas
+      const element = document.elementFromPoint(x, y);
+      if (!element) return null;
 
-    <!-- Color Gradient Slider -->
-    <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 16px;">
-      <button id="save-color-btn" style="width: 40px; height: 40px; background: linear-gradient(135deg, #FF6B35, #F7931E); border: none; border-radius: 50%; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all 0.2s; box-shadow: 0 4px 12px rgba(255,107,53,0.4); flex-shrink: 0;">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="white">
-          <path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z"/>
-          <polyline points="17 21 17 13 7 13 7 21"/>
-          <polyline points="7 3 7 8 15 8"/>
-        </svg>
-      </button>
-      <div style="flex: 1; position: relative; height: 32px;">
-        <div id="color-gradient" style="width: 100%; height: 100%; border-radius: 16px; background: linear-gradient(to right, #FF0000, #FFFF00, #00FF00, #00FFFF, #0000FF, #FF00FF, #FF0000); position: relative; cursor: pointer; box-shadow: inset 0 2px 4px rgba(0,0,0,0.2);">
-          <div id="color-slider-thumb" style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 24px; height: 24px; background: white; border: 3px solid #2D3748; border-radius: 50%; cursor: grab; box-shadow: 0 2px 8px rgba(0,0,0,0.4);"></div>
-        </div>
-      </div>
-    </div>
+      // Get computed background color
+      const computedStyle = window.getComputedStyle(element);
+      let color = computedStyle.backgroundColor;
+      
+      // Try to get color from background image or actual element
+      if (color === 'rgba(0, 0, 0, 0)' || color === 'transparent') {
+        color = computedStyle.color;
+      }
 
-    <!-- Color Format Values -->
-    <div style="display: flex; flex-direction: column; gap: 8px; margin-bottom: 16px;">
-      <div class="color-value-row" data-format="hex" style="background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.12); border-radius: 10px; padding: 10px 14px; display: flex; justify-content: space-between; align-items: center; cursor: pointer; transition: all 0.2s;">
-        <span id="hex-value" style="font-size: 15px; font-weight: 600; color: #E5E7EB; font-family: 'Courier New', monospace;">#20A5AC</span>
-        <button class="copy-btn" data-format="hex" style="background: rgba(255,255,255,0.1); border: none; width: 30px; height: 30px; border-radius: 6px; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all 0.2s;">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#E5E7EB" stroke-width="2">
-            <rect x="9" y="9" width="13" height="13" rx="2"/>
-            <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/>
-          </svg>
-        </button>
-      </div>
+      // Parse RGB
+      const rgbMatch = color.match(/\d+/g);
+      if (rgbMatch && rgbMatch.length >= 3) {
+        return {
+          r: parseInt(rgbMatch[0]),
+          g: parseInt(rgbMatch[1]),
+          b: parseInt(rgbMatch[2])
+        };
+      }
 
-      <div class="color-value-row" data-format="rgb" style="background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.12); border-radius: 10px; padding: 10px 14px; display: flex; justify-content: space-between; align-items: center; cursor: pointer; transition: all 0.2s;">
-        <span id="rgb-value" style="font-size: 15px; font-weight: 600; color: #E5E7EB; font-family: 'Courier New', monospace;">rgb(32, 165, 172)</span>
-        <button class="copy-btn" data-format="rgb" style="background: rgba(255,255,255,0.1); border: none; width: 30px; height: 30px; border-radius: 6px; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all 0.2s;">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#E5E7EB" stroke-width="2">
-            <rect x="9" y="9" width="13" height="13" rx="2"/>
-            <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/>
-          </svg>
-        </button>
-      </div>
+      // Fallback: try to capture from canvas if it's an image
+      if (element.tagName === 'IMG' || element.tagName === 'CANVAS') {
+        const tempCanvas = document.createElement('canvas');
+        const tempCtx = tempCanvas.getContext('2d');
+        tempCanvas.width = element.width || element.offsetWidth;
+        tempCanvas.height = element.height || element.offsetHeight;
+        
+        try {
+          tempCtx.drawImage(element, 0, 0);
+          const rect = element.getBoundingClientRect();
+          const localX = x - rect.left;
+          const localY = y - rect.top;
+          const imageData = tempCtx.getImageData(localX, localY, 1, 1);
+          return {
+            r: imageData.data[0],
+            g: imageData.data[1],
+            b: imageData.data[2]
+          };
+        } catch (e) {
+          console.log('Cannot read image data (CORS)');
+        }
+      }
 
-      <div class="color-value-row" data-format="hsl" style="background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.12); border-radius: 10px; padding: 10px 14px; display: flex; justify-content: space-between; align-items: center; cursor: pointer; transition: all 0.2s;">
-        <span id="hsl-value" style="font-size: 15px; font-weight: 600; color: #E5E7EB; font-family: 'Courier New', monospace;">hsl(183, 69%, 40%)</span>
-        <button class="copy-btn" data-format="hsl" style="background: rgba(255,255,255,0.1); border: none; width: 30px; height: 30px; border-radius: 6px; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all 0.2s;">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#E5E7EB" stroke-width="2">
-            <rect x="9" y="9" width="13" height="13" rx="2"/>
-            <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/>
-          </svg>
-        </button>
-      </div>
+      return null;
+    } catch (error) {
+      console.error('Error getting pixel color:', error);
+      return null;
+    }
+  }
 
-      <div class="color-value-row" data-format="hsv" style="background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.12); border-radius: 10px; padding: 10px 14px; display: flex; justify-content: space-between; align-items: center; cursor: pointer; transition: all 0.2s;">
-        <span id="hsv-value" style="font-size: 15px; font-weight: 600; color: #E5E7EB; font-family: 'Courier New', monospace;">hsv(183, 81%, 67%)</span>
-        <button class="copy-btn" data-format="hsv" style="background: rgba(255,255,255,0.1); border: none; width: 30px; height: 30px; border-radius: 6px; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all 0.2s;">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#E5E7EB" stroke-width="2">
-            <rect x="9" y="9" width="13" height="13" rx="2"/>
-            <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/>
-          </svg>
-        </button>
-      </div>
+  // Eyedropper mouse move handler
+  function handleEyedropperMove(e) {
+    if (!eyedropperActive) return;
+    
+    const x = e.clientX;
+    const y = e.clientY;
+    
+    // Position magnifier
+    magnifier.style.left = (x + 20) + 'px';
+    magnifier.style.top = (y + 20) + 'px';
+    magnifier.style.display = 'block';
+    
+    // Get color at cursor
+    getPixelColor(x, y).then(color => {
+      if (color) {
+        // Draw magnified area (simplified - just show the color)
+        ctx.fillStyle = `rgb(${color.r}, ${color.g}, ${color.b})`;
+        ctx.fillRect(0, 0, 140, 140);
+        
+        // Update current color preview
+        currentColor = color;
+      }
+    });
+  }
 
-      <div class="color-value-row" data-format="cmyk" style="background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.12); border-radius: 10px; padding: 10px 14px; display: flex; justify-content: space-between; align-items: center; cursor: pointer; transition: all 0.2s;">
-        <span id="cmyk-value" style="font-size: 15px; font-weight: 600; color: #E5E7EB; font-family: 'Courier New', monospace;">cmyk(81%, 4%, 0%, 33%)</span>
-        <button class="copy-btn" data-format="cmyk" style="background: rgba(255,255,255,0.1); border: none; width: 30px; height: 30px; border-radius: 6px; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all 0.2s;">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#E5E7EB" stroke-width="2">
-            <rect x="9" y="9" width="13" height="13" rx="2"/>
-            <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/>
-          </svg>
-        </button>
-      </div>
-    </div>
+  // Eyedropper click handler
+  async function handleEyedropperClick(e) {
+    if (!eyedropperActive) return;
+    
+    e.preventDefault();
+    e.stopPropagation();
+    
+    const color = await getPixelColor(e.clientX, e.clientY);
+    if (color) {
+      updateColorDisplay(color.r, color.g, color.b);
+      addToHistory(color.r, color.g, color.b);
+      deactivateEyedropper();
+      showNotification('Color picked!');
+    }
+  }
 
-    <!-- Recent Colors -->
-    <div style="text-align: center; margin-bottom: 10px;">
-      <h3 style="font-size: 11px; font-weight: 600; color: #CBD5E0; text-transform: uppercase; letter-spacing: 1px;">Recent Colors</h3>
-    </div>
-    <div id="color-history" style="display: flex; justify-content: center; gap: 8px; flex-wrap: wrap;">
-      <div style="width: 38px; height: 38px; background: #00CED1; border-radius: 50%; border: 2px solid rgba(255,255,255,0.2); cursor: pointer; transition: all 0.2s;"></div>
-      <div style="width: 38px; height: 38px; background: #FF00FF; border-radius: 50%; border: 2px solid rgba(255,255,255,0.2); cursor: pointer; transition: all 0.2s;"></div>
-      <div style="width: 38px; height: 38px; background: #00FF7F; border-radius: 50%; border: 2px solid rgba(255,255,255,0.2); cursor: pointer; transition: all 0.2s;"></div>
-      <div style="width: 38px; height: 38px; background: #FF0000; border-radius: 50%; border: 2px solid rgba(255,255,255,0.2); cursor: pointer; transition: all 0.2s;"></div>
-      <div style="width: 38px; height: 38px; background: #FFFFFF; border-radius: 50%; border: 2px solid rgba(255,255,255,0.2); cursor: pointer; transition: all 0.2s;"></div>
-      <div style="width: 38px; height: 38px; background: #FFA500; border-radius: 50%; border: 2px solid rgba(255,255,255,0.2); cursor: pointer; transition: all 0.2s;"></div>
-      <div style="width: 38px; height: 38px; background: #0000FF; border-radius: 50%; border: 2px solid rgba(255,255,255,0.2); cursor: pointer; transition: all 0.2s;"></div>
-    </div>
-  `;
+  function activateEyedropper() {
+    eyedropperActive = true;
+    document.body.style.cursor = 'crosshair';
+    if (!magnifier) createMagnifier();
+    magnifier.style.display = 'block';
+    
+    document.addEventListener('mousemove', handleEyedropperMove);
+    document.addEventListener('click', handleEyedropperClick, true);
+    
+    // ESC to cancel
+    const escHandler = (e) => {
+      if (e.key === 'Escape') {
+        deactivateEyedropper();
+        document.removeEventListener('keydown', escHandler);
+      }
+    };
+    document.addEventListener('keydown', escHandler);
+  }
 
-  document.body.appendChild(panel);
+  function deactivateEyedropper() {
+    eyedropperActive = false;
+    document.body.style.cursor = 'default';
+    if (magnifier) magnifier.style.display = 'none';
+    
+    document.removeEventListener('mousemove', handleEyedropperMove);
+    document.removeEventListener('click', handleEyedropperClick, true);
+  }
 
-  // Add resize handle
-  const resizeHandle = document.createElement('div');
-  resizeHandle.id = 'resize-handle-color';
-  resizeHandle.style.cssText = `
-    position: absolute;
-    bottom: 0;
-    right: 0;
-    width: 20px;
-    height: 20px;
-    cursor: nwse-resize;
-    background: linear-gradient(135deg, transparent 50%, #2D3748 50%);
-    border-radius: 0 0 16px 0;
-    z-index: 10;
-  `;
-  panel.appendChild(resizeHandle);
+  // Load color history from storage
+  function loadColorHistory() {
+    browserAPI.storage.local.get(['colorHistory'], (result) => {
+      if (result.colorHistory) {
+        colorHistory = result.colorHistory;
+      }
+    });
+  }
+
+  // Save color history to storage
+  function saveColorHistory() {
+    browserAPI.storage.local.set({ colorHistory: colorHistory });
+  }
+
+  // Add color to history
+  function addToHistory(r, g, b) {
+    const hex = rgbToHex(r, g, b);
+    
+    // Remove duplicate if exists
+    colorHistory = colorHistory.filter(c => c.hex !== hex);
+    
+    // Add to beginning
+    colorHistory.unshift({ r, g, b, hex, timestamp: Date.now() });
+    
+    // Keep only last 50 colors
+    if (colorHistory.length > 50) {
+      colorHistory = colorHistory.slice(0, 50);
+    }
+    
+    saveColorHistory();
+  }
 
   // Update color display
-  function updateColorDisplay(r, g, b, a = 1) {
-    currentColor = { r, g, b, a };
+  function updateColorDisplay(r, g, b) {
+    currentColor = { r, g, b, a: 1 };
     
     const hex = rgbToHex(r, g, b);
     const hsl = rgbToHsl(r, g, b);
     const hsv = rgbToHsv(r, g, b);
     const cmyk = rgbToCmyk(r, g, b);
 
-    // Update formats
-    document.getElementById('hex-value').textContent = hex;
-    document.getElementById('rgb-value').textContent = `rgb(${r}, ${g}, ${b})`;
-    document.getElementById('hsl-value').textContent = `hsl(${hsl.h}, ${hsl.s}%, ${hsl.l}%)`;
-    document.getElementById('hsv-value').textContent = `hsv(${hsv.h}, ${hsv.s}%, ${hsv.v}%)`;
-    document.getElementById('cmyk-value').textContent = `cmyk(${cmyk.c}%, ${cmyk.m}%, ${cmyk.y}%, ${cmyk.k}%)`;
-
-    // Update slider thumb color
-    const thumb = document.getElementById('color-slider-thumb');
-    thumb.style.background = `rgb(${r}, ${g}, ${b})`;
-    thumb.style.borderColor = '#2D3748';
-  }
-
-  function addToHistory(r, g, b) {
-    const hex = rgbToHex(r, g, b);
-    
-    // Avoid duplicates
-    if (pickedColors.some(c => c.hex === hex)) return;
-    
-    pickedColors.unshift({ r, g, b, hex });
-    if (pickedColors.length > 8) pickedColors.pop();
-    
-    updateHistoryDisplay();
-  }
-
-  function updateHistoryDisplay() {
-    const container = document.getElementById('color-history');
-    
-    if (pickedColors.length === 0) {
-      // Show default colors
-      container.innerHTML = `
-        <div style="width: 50px; height: 50px; background: #00CED1; border-radius: 50%; border: 3px solid #2D3748; cursor: pointer;"></div>
-        <div style="width: 50px; height: 50px; background: #FF00FF; border-radius: 50%; border: 3px solid #2D3748; cursor: pointer;"></div>
-        <div style="width: 50px; height: 50px; background: #00FF7F; border-radius: 50%; border: 3px solid #2D3748; cursor: pointer;"></div>
-        <div style="width: 50px; height: 50px; background: #FF0000; border-radius: 50%; border: 3px solid #2D3748; cursor: pointer;"></div>
-        <div style="width: 50px; height: 50px; background: #FFFFFF; border-radius: 50%; border: 3px solid #2D3748; cursor: pointer;"></div>
-        <div style="width: 50px; height: 50px; background: #FFA500; border-radius: 50%; border: 3px solid #2D3748; cursor: pointer;"></div>
-        <div style="width: 50px; height: 50px; background: #0000FF; border-radius: 50%; border: 3px solid #2D3748; cursor: pointer;"></div>
-        <div style="width: 50px; height: 50px; background: #FF1493; border-radius: 50%; border: 3px solid #2D3748; cursor: pointer;"></div>
-      `;
-      return;
+    // Update all format displays if panel exists
+    if (panel) {
+      const hexEl = panel.querySelector('#hex-value');
+      const rgbEl = panel.querySelector('#rgb-value');
+      const hslEl = panel.querySelector('#hsl-value');
+      const hsvEl = panel.querySelector('#hsv-value');
+      const cmykEl = panel.querySelector('#cmyk-value');
+      
+      if (hexEl) hexEl.textContent = hex;
+      if (rgbEl) rgbEl.textContent = `rgb(${r}, ${g}, ${b})`;
+      if (hslEl) hslEl.textContent = `hsl(${hsl.h}, ${hsl.s}%, ${hsl.l}%)`;
+      if (hsvEl) hsvEl.textContent = `hsv(${hsv.h}, ${hsv.s}%, ${hsv.v}%)`;
+      if (cmykEl) cmykEl.textContent = `cmyk(${cmyk.c}%, ${cmyk.m}%, ${cmyk.y}%, ${cmyk.k}%)`;
+      
+      // Update color preview
+      const preview = panel.querySelector('#color-preview');
+      if (preview) {
+        preview.style.background = `rgb(${r}, ${g}, ${b})`;
+      }
     }
+  }
 
-    container.innerHTML = pickedColors.map(color => `
-      <div class="history-color" data-rgb="${color.r},${color.g},${color.b}" style="width: 50px; height: 50px; background: rgb(${color.r}, ${color.g}, ${color.b}); border-radius: 50%; border: 3px solid #2D3748; cursor: pointer; transition: all 0.2s;"></div>
-    `).join('');
+  // Create main menu panel
+  function createPanel() {
+    panel = document.createElement('div');
+    panel.id = 'colorzilla-panel';
+    panel.style.cssText = `
+      position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
+      width: 420px; background: #FFFFFF; border-radius: 12px;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.2); z-index: 9999999;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      overflow: hidden; display: flex; flex-direction: column;
+    `;
 
-    // Add click handlers
-    document.querySelectorAll('.history-color').forEach(el => {
-      el.addEventListener('click', () => {
-        const rgb = el.dataset.rgb.split(',').map(Number);
-        updateColorDisplay(rgb[0], rgb[1], rgb[2]);
+    panel.innerHTML = `
+      <div style="padding: 20px; border-bottom: 1px solid #E5E7EB;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+          <h2 style="margin: 0; font-size: 18px; color: #1F2937; font-weight: 600;">ColorZilla</h2>
+          <button id="close-panel" style="background: none; border: none; font-size: 24px; color: #6B7280; cursor: pointer; padding: 0; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; border-radius: 6px; transition: all 0.2s;">×</button>
+        </div>
+        
+        <!-- Menu Items -->
+        <div style="display: flex; flex-direction: column; gap: 2px;">
+          <button class="menu-item" data-action="pick-page" style="display: flex; align-items: center; gap: 12px; padding: 14px 16px; background: white; border: 1px solid #E5E7EB; border-radius: 8px; cursor: pointer; transition: all 0.2s; width: 100%; text-align: left;">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#3B82F6" stroke-width="2">
+              <path d="M7 17L17 7M17 7H7M17 7V17"/>
+            </svg>
+            <span style="font-size: 15px; color: #1F2937; font-weight: 500;">Pick Color From Page</span>
+          </button>
+
+          <button class="menu-item" data-action="color-picker" style="display: flex; align-items: center; gap: 12px; padding: 14px 16px; background: white; border: 1px solid #E5E7EB; border-radius: 8px; cursor: pointer; transition: all 0.2s; width: 100%; text-align: left;">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+              <circle cx="12" cy="12" r="10" fill="#FF0000"/>
+              <circle cx="12" cy="12" r="7" fill="#00FF00"/>
+              <circle cx="12" cy="12" r="4" fill="#0000FF"/>
+            </svg>
+            <span style="font-size: 15px; color: #1F2937; font-weight: 500;">Color Picker</span>
+          </button>
+
+          <button class="menu-item" data-action="history" style="display: flex; align-items: center; gap: 12px; padding: 14px 16px; background: white; border: 1px solid #E5E7EB; border-radius: 8px; cursor: pointer; transition: all 0.2s; width: 100%; text-align: left;">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#F59E0B" stroke-width="2">
+              <circle cx="12" cy="12" r="10"/>
+              <polyline points="12 6 12 12 16 14"/>
+            </svg>
+            <span style="font-size: 15px; color: #1F2937; font-weight: 500;">Picked Color History</span>
+          </button>
+        </div>
+
+        <div style="height: 1px; background: #E5E7EB; margin: 16px 0;"></div>
+
+        <div style="display: flex; flex-direction: column; gap: 2px;">
+          <button class="menu-item" data-action="analyzer" style="display: flex; align-items: center; gap: 12px; padding: 14px 16px; background: white; border: 1px solid #E5E7EB; border-radius: 8px; cursor: pointer; transition: all 0.2s; width: 100%; text-align: left;">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#8B5CF6" stroke-width="2">
+              <circle cx="11" cy="11" r="8"/>
+              <path d="M21 21l-4.35-4.35"/>
+            </svg>
+            <span style="font-size: 15px; color: #1F2937; font-weight: 500;">Webpage Color Analyzer</span>
+          </button>
+
+          <button class="menu-item" data-action="palette" style="display: flex; align-items: center; gap: 12px; padding: 14px 16px; background: white; border: 1px solid #E5E7EB; border-radius: 8px; cursor: pointer; transition: all 0.2s; width: 100%; text-align: left;">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#F97316" stroke-width="2">
+              <circle cx="12" cy="12" r="10"/>
+              <circle cx="12" cy="12" r="3"/>
+              <path d="M12 2v4m0 12v4M2 12h4m12 0h4"/>
+            </svg>
+            <span style="font-size: 15px; color: #1F2937; font-weight: 500;">Palette Browser</span>
+          </button>
+
+          <button class="menu-item" data-action="gradient" style="display: flex; align-items: center; gap: 12px; padding: 14px 16px; background: white; border: 1px solid #E5E7EB; border-radius: 8px; cursor: pointer; transition: all 0.2s; width: 100%; text-align: left;">
+            <div style="width: 24px; height: 24px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 4px;"></div>
+            <span style="font-size: 15px; color: #1F2937; font-weight: 500;">CSS Gradient Generator</span>
+          </button>
+        </div>
+      </div>
+    `;
+
+    document.body.appendChild(panel);
+
+    // Add event listeners
+    panel.querySelector('#close-panel').addEventListener('click', () => {
+      panel.remove();
+      browserAPI.storage.sync.set({ colorFinder: false });
+    });
+
+    // Hover effects
+    panel.querySelector('#close-panel').addEventListener('mouseenter', function() {
+      this.style.background = '#FEE2E2';
+      this.style.color = '#DC2626';
+    });
+    panel.querySelector('#close-panel').addEventListener('mouseleave', function() {
+      this.style.background = 'none';
+      this.style.color = '#6B7280';
+    });
+
+    // Menu item hover effects and actions
+    panel.querySelectorAll('.menu-item').forEach(item => {
+      item.addEventListener('mouseenter', function() {
+        this.style.background = '#F3F4F6';
+        this.style.borderColor = '#3B82F6';
+      });
+      item.addEventListener('mouseleave', function() {
+        this.style.background = 'white';
+        this.style.borderColor = '#E5E7EB';
       });
 
-      el.addEventListener('mouseenter', () => {
-        el.style.transform = 'scale(1.15)';
-        el.style.borderColor = '#60A5FA';
+      item.addEventListener('click', function() {
+        const action = this.dataset.action;
+        handleMenuAction(action);
       });
+    });
 
-      el.addEventListener('mouseleave', () => {
-        el.style.transform = 'scale(1)';
-        el.style.borderColor = '#2D3748';
+    // Make draggable
+    makeDraggable(panel);
+  }
+
+  // Handle menu actions
+  function handleMenuAction(action) {
+    switch (action) {
+      case 'pick-page':
+        panel.style.display = 'none';
+        activateEyedropper();
+        break;
+      case 'color-picker':
+        showColorPicker();
+        break;
+      case 'history':
+        showColorHistory();
+        break;
+      case 'analyzer':
+        showWebpageAnalyzer();
+        break;
+      case 'palette':
+        showNotification('Palette Browser coming soon!');
+        break;
+      case 'gradient':
+        showNotification('CSS Gradient Generator coming soon!');
+        break;
+    }
+  }
+
+  // Show color picker panel
+  function showColorPicker() {
+    panel.innerHTML = `
+      <div style="padding: 20px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+          <button id="back-btn" style="background: none; border: none; color: #3B82F6; cursor: pointer; font-size: 14px; display: flex; align-items: center; gap: 4px;">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M19 12H5M12 19l-7-7 7-7"/>
+            </svg>
+            Back
+          </button>
+          <h3 style="margin: 0; font-size: 16px; color: #1F2937;">Color Picker</h3>
+          <button id="close-panel" style="background: none; border: none; font-size: 24px; color: #6B7280; cursor: pointer;">×</button>
+        </div>
+
+        <div id="color-preview" style="width: 100%; height: 80px; border-radius: 8px; margin-bottom: 16px; background: rgb(${currentColor.r}, ${currentColor.g}, ${currentColor.b}); border: 2px solid #E5E7EB;"></div>
+
+        <div style="display: flex; flex-direction: column; gap: 8px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; padding: 10px; background: #F9FAFB; border-radius: 6px;">
+            <span id="hex-value" style="font-family: monospace; font-size: 14px; color: #1F2937;">${rgbToHex(currentColor.r, currentColor.g, currentColor.b)}</span>
+            <button class="copy-btn" data-format="hex" style="background: #3B82F6; color: white; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-size: 12px;">Copy</button>
+          </div>
+          <div style="display: flex; justify-content: space-between; align-items: center; padding: 10px; background: #F9FAFB; border-radius: 6px;">
+            <span id="rgb-value" style="font-family: monospace; font-size: 14px; color: #1F2937;">rgb(${currentColor.r}, ${currentColor.g}, ${currentColor.b})</span>
+            <button class="copy-btn" data-format="rgb" style="background: #3B82F6; color: white; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-size: 12px;">Copy</button>
+          </div>
+          <div style="display: flex; justify-content: space-between; align-items: center; padding: 10px; background: #F9FAFB; border-radius: 6px;">
+            <span id="hsl-value" style="font-family: monospace; font-size: 14px; color: #1F2937;">hsl(${rgbToHsl(currentColor.r, currentColor.g, currentColor.b).h}, ${rgbToHsl(currentColor.r, currentColor.g, currentColor.b).s}%, ${rgbToHsl(currentColor.r, currentColor.g, currentColor.b).l}%)</span>
+            <button class="copy-btn" data-format="hsl" style="background: #3B82F6; color: white; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-size: 12px;">Copy</button>
+          </div>
+          <div style="display: flex; justify-content: space-between; align-items: center; padding: 10px; background: #F9FAFB; border-radius: 6px;">
+            <span id="hsv-value" style="font-family: monospace; font-size: 14px; color: #1F2937;">hsv(${rgbToHsv(currentColor.r, currentColor.g, currentColor.b).h}, ${rgbToHsv(currentColor.r, currentColor.g, currentColor.b).s}%, ${rgbToHsv(currentColor.r, currentColor.g, currentColor.b).v}%)</span>
+            <button class="copy-btn" data-format="hsv" style="background: #3B82F6; color: white; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-size: 12px;">Copy</button>
+          </div>
+          <div style="display: flex; justify-content: space-between; align-items: center; padding: 10px; background: #F9FAFB; border-radius: 6px;">
+            <span id="cmyk-value" style="font-family: monospace; font-size: 14px; color: #1F2937;">cmyk(${rgbToCmyk(currentColor.r, currentColor.g, currentColor.b).c}%, ${rgbToCmyk(currentColor.r, currentColor.g, currentColor.b).m}%, ${rgbToCmyk(currentColor.r, currentColor.g, currentColor.b).y}%, ${rgbToCmyk(currentColor.r, currentColor.g, currentColor.b).k}%)</span>
+            <button class="copy-btn" data-format="cmyk" style="background: #3B82F6; color: white; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-size: 12px;">Copy</button>
+          </div>
+        </div>
+      </div>
+    `;
+
+    attachCommonHandlers();
+  }
+
+  // Show color history
+  function showColorHistory() {
+    const historyHTML = colorHistory.length > 0 
+      ? colorHistory.map(color => `
+          <div class="history-item" data-rgb="${color.r},${color.g},${color.b}" style="display: flex; align-items: center; gap: 12px; padding: 12px; background: #F9FAFB; border-radius: 6px; cursor: pointer; transition: all 0.2s;">
+            <div style="width: 40px; height: 40px; border-radius: 6px; background: rgb(${color.r}, ${color.g}, ${color.b}); border: 2px solid #E5E7EB; flex-shrink: 0;"></div>
+            <div style="flex: 1;">
+              <div style="font-family: monospace; font-size: 14px; color: #1F2937; font-weight: 600;">${color.hex}</div>
+              <div style="font-size: 12px; color: #6B7280;">rgb(${color.r}, ${color.g}, ${color.b})</div>
+            </div>
+            <button class="copy-history-btn" data-hex="${color.hex}" style="background: #3B82F6; color: white; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-size: 12px;">Copy</button>
+          </div>
+        `).join('')
+      : '<div style="text-align: center; padding: 40px; color: #9CA3AF;">No colors picked yet. Use "Pick Color From Page" to start!</div>';
+
+    panel.innerHTML = `
+      <div style="padding: 20px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+          <button id="back-btn" style="background: none; border: none; color: #3B82F6; cursor: pointer; font-size: 14px; display: flex; align-items: center; gap: 4px;">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M19 12H5M12 19l-7-7 7-7"/>
+            </svg>
+            Back
+          </button>
+          <h3 style="margin: 0; font-size: 16px; color: #1F2937;">Color History</h3>
+          <button id="close-panel" style="background: none; border: none; font-size: 24px; color: #6B7280; cursor: pointer;">×</button>
+        </div>
+
+        <div style="max-height: 400px; overflow-y: auto; display: flex; flex-direction: column; gap: 8px;">
+          ${historyHTML}
+        </div>
+
+        ${colorHistory.length > 0 ? '<button id="clear-history" style="width: 100%; margin-top: 16px; padding: 10px; background: #EF4444; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 14px;">Clear History</button>' : ''}
+      </div>
+    `;
+
+    attachCommonHandlers();
+
+    // History item click
+    panel.querySelectorAll('.history-item').forEach(item => {
+      item.addEventListener('mouseenter', function() {
+        this.style.background = '#E5E7EB';
+      });
+      item.addEventListener('mouseleave', function() {
+        this.style.background = '#F9FAFB';
+      });
+      item.addEventListener('click', function(e) {
+        if (e.target.classList.contains('copy-history-btn')) return;
+        const rgb = this.dataset.rgb.split(',').map(Number);
+        currentColor = { r: rgb[0], g: rgb[1], b: rgb[2], a: 1 };
+        showColorPicker();
+      });
+    });
+
+    // Copy buttons
+    panel.querySelectorAll('.copy-history-btn').forEach(btn => {
+      btn.addEventListener('click', function(e) {
+        e.stopPropagation();
+        copyToClipboard(this.dataset.hex, 'HEX');
+      });
+    });
+
+    // Clear history
+    const clearBtn = panel.querySelector('#clear-history');
+    if (clearBtn) {
+      clearBtn.addEventListener('click', () => {
+        colorHistory = [];
+        saveColorHistory();
+        showColorHistory();
+        showNotification('History cleared!');
+      });
+    }
+  }
+
+  // Show webpage color analyzer
+  function showWebpageAnalyzer() {
+    showNotification('Analyzing webpage colors...');
+    
+    const colors = new Map();
+    const elements = document.querySelectorAll('*');
+    
+    elements.forEach(el => {
+      if (el.id === 'colorzilla-panel') return;
+      
+      const style = window.getComputedStyle(el);
+      const bgColor = style.backgroundColor;
+      const textColor = style.color;
+      
+      [bgColor, textColor].forEach(color => {
+        if (color && color !== 'rgba(0, 0, 0, 0)' && color !== 'transparent') {
+          const match = color.match(/\d+/g);
+          if (match && match.length >= 3) {
+            const hex = rgbToHex(parseInt(match[0]), parseInt(match[1]), parseInt(match[2]));
+            colors.set(hex, { r: parseInt(match[0]), g: parseInt(match[1]), b: parseInt(match[2]) });
+          }
+        }
+      });
+    });
+
+    const colorArray = Array.from(colors.values()).slice(0, 20);
+
+    panel.innerHTML = `
+      <div style="padding: 20px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+          <button id="back-btn" style="background: none; border: none; color: #3B82F6; cursor: pointer; font-size: 14px; display: flex; align-items: center; gap: 4px;">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M19 12H5M12 19l-7-7 7-7"/>
+            </svg>
+            Back
+          </button>
+          <h3 style="margin: 0; font-size: 16px; color: #1F2937;">Webpage Colors</h3>
+          <button id="close-panel" style="background: none; border: none; font-size: 24px; color: #6B7280; cursor: pointer;">×</button>
+        </div>
+
+        <div style="margin-bottom: 12px; color: #6B7280; font-size: 14px;">Found ${colorArray.length} unique colors</div>
+
+        <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; max-height: 400px; overflow-y: auto;">
+          ${colorArray.map(color => `
+            <div class="analyzer-color" data-rgb="${color.r},${color.g},${color.b}" style="cursor: pointer; transition: all 0.2s;">
+              <div style="width: 100%; aspect-ratio: 1; background: rgb(${color.r}, ${color.g}, ${color.b}); border-radius: 8px; border: 2px solid #E5E7EB; margin-bottom: 6px;"></div>
+              <div style="font-family: monospace; font-size: 11px; color: #1F2937; text-align: center;">${rgbToHex(color.r, color.g, color.b)}</div>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+    `;
+
+    attachCommonHandlers();
+
+    // Color click handlers
+    panel.querySelectorAll('.analyzer-color').forEach(item => {
+      item.addEventListener('mouseenter', function() {
+        this.style.transform = 'scale(1.05)';
+      });
+      item.addEventListener('mouseleave', function() {
+        this.style.transform = 'scale(1)';
+      });
+      item.addEventListener('click', function() {
+        const rgb = this.dataset.rgb.split(',').map(Number);
+        currentColor = { r: rgb[0], g: rgb[1], b: rgb[2], a: 1 };
+        addToHistory(rgb[0], rgb[1], rgb[2]);
+        showColorPicker();
       });
     });
   }
 
-  // Color gradient slider
-  let isDraggingSlider = false;
-  const gradient = document.getElementById('color-gradient');
-  const thumb = document.getElementById('color-slider-thumb');
-
-  const updateColorFromSlider = (x) => {
-    const rect = gradient.getBoundingClientRect();
-    const percent = Math.max(0, Math.min(1, (x - rect.left) / rect.width));
-    
-    // Calculate color from gradient position
-    const hue = percent * 360;
-    const rgb = hslToRgb(hue, 100, 50);
-    
-    updateColorDisplay(rgb.r, rgb.g, rgb.b);
-    
-    // Update thumb position
-    thumb.style.left = (percent * 100) + '%';
-  };
-
-  gradient.addEventListener('mousedown', (e) => {
-    isDraggingSlider = true;
-    updateColorFromSlider(e.clientX);
-  });
-
-  thumb.addEventListener('mousedown', (e) => {
-    isDraggingSlider = true;
-    e.stopPropagation();
-  });
-
-  document.addEventListener('mousemove', (e) => {
-    if (isDraggingSlider) {
-      updateColorFromSlider(e.clientX);
-    }
-  });
-
-  document.addEventListener('mouseup', () => {
-    if (isDraggingSlider) {
-      isDraggingSlider = false;
-      thumb.style.cursor = 'grab';
-    }
-  });
-
-  thumb.addEventListener('mousedown', () => {
-    thumb.style.cursor = 'grabbing';
-  });
-
-  // Eyedropper functionality - Pick from Web
-  const handleEyedropper = (e) => {
-    if (!eyedropperActive) return;
-    
-    e.preventDefault();
-    e.stopPropagation();
-    
-    const element = document.elementFromPoint(e.clientX, e.clientY);
-    if (!element || element.closest('#color-finder-panel')) return;
-
-    // Try to get color from element or image
-    const computedStyle = window.getComputedStyle(element);
-    let color = computedStyle.backgroundColor;
-    
-    // If transparent, try text color
-    if (color === 'rgba(0, 0, 0, 0)' || color === 'transparent') {
-      color = computedStyle.color;
+  // Attach common handlers (back, close, copy buttons)
+  function attachCommonHandlers() {
+    const backBtn = panel.querySelector('#back-btn');
+    if (backBtn) {
+      backBtn.addEventListener('click', () => {
+        panel.remove();
+        createPanel();
+      });
     }
 
-    const rgbMatch = color.match(/\d+/g);
-    if (rgbMatch && rgbMatch.length >= 3) {
-      const r = parseInt(rgbMatch[0]);
-      const g = parseInt(rgbMatch[1]);
-      const b = parseInt(rgbMatch[2]);
-      
-      updateColorDisplay(r, g, b);
-      addToHistory(r, g, b);
-      
-      eyedropperActive = false;
-      document.body.style.cursor = 'default';
-      const btn = document.getElementById('pick-from-web-btn');
-      btn.style.background = '#5A6C7D';
-      btn.style.borderColor = '#718096';
+    const closeBtn = panel.querySelector('#close-panel');
+    if (closeBtn) {
+      closeBtn.addEventListener('click', () => {
+        panel.remove();
+        browserAPI.storage.sync.set({ colorFinder: false });
+      });
     }
-  };
+
+    panel.querySelectorAll('.copy-btn').forEach(btn => {
+      btn.addEventListener('click', function() {
+        const format = this.dataset.format;
+        const value = panel.querySelector(`#${format}-value`).textContent;
+        copyToClipboard(value, format.toUpperCase());
+      });
+    });
+  }
 
   // Make panel draggable
-  const header = document.getElementById('color-header');
-  
-  header.addEventListener('mousedown', (e) => {
-    if (e.target.id === 'close-color-panel' || e.target.closest('#close-color-panel')) {
-      return;
-    }
-    
-    isDragging = true;
-    dragStartX = e.clientX;
-    dragStartY = e.clientY;
-    
-    const rect = panel.getBoundingClientRect();
-    panelStartX = rect.left;
-    panelStartY = rect.top;
-    
-    panel.style.transform = 'none';
-    panel.style.left = panelStartX + 'px';
-    panel.style.top = panelStartY + 'px';
-    
-    header.style.cursor = 'grabbing';
-    e.preventDefault();
-  });
+  function makeDraggable(element) {
+    let isDragging = false;
+    let startX, startY, startLeft, startTop;
 
-  // Make panel resizable
-  resizeHandle.addEventListener('mousedown', (e) => {
-    isResizing = true;
-    resizeStartX = e.clientX;
-    resizeStartY = e.clientY;
-    
-    panelStartWidth = panel.offsetWidth;
-    panelStartHeight = panel.offsetHeight;
-    
-    e.preventDefault();
-    e.stopPropagation();
-  });
-
-  // Mouse move handler
-  document.addEventListener('mousemove', (e) => {
-    if (isDragging) {
-      const deltaX = e.clientX - dragStartX;
-      const deltaY = e.clientY - dragStartY;
+    element.addEventListener('mousedown', function(e) {
+      if (e.target.tagName === 'BUTTON' || e.target.closest('button')) return;
       
-      let newX = panelStartX + deltaX;
-      let newY = panelStartY + deltaY;
-      
-      const maxX = window.innerWidth - panel.offsetWidth;
-      const maxY = window.innerHeight - panel.offsetHeight;
-      
-      newX = Math.max(0, Math.min(newX, maxX));
-      newY = Math.max(0, Math.min(newY, maxY));
-      
-      panel.style.left = newX + 'px';
-      panel.style.top = newY + 'px';
-    }
-    
-    if (isResizing) {
-      const deltaX = e.clientX - resizeStartX;
-      const deltaY = e.clientY - resizeStartY;
-      
-      let newWidth = panelStartWidth + deltaX;
-      let newHeight = panelStartHeight + deltaY;
-      
-      newWidth = Math.max(350, Math.min(newWidth, window.innerWidth * 0.9));
-      newHeight = Math.max(480, Math.min(newHeight, window.innerHeight * 0.9));
-      
-      panel.style.width = newWidth + 'px';
-      panel.style.height = newHeight + 'px';
-    }
-  });
-
-  // Mouse up handler
-  document.addEventListener('mouseup', () => {
-    if (isDragging) {
-      isDragging = false;
-      header.style.cursor = 'move';
-    }
-    if (isResizing) {
-      isResizing = false;
-    }
-  });
-
-  // Pick from Web button
-  document.getElementById('pick-from-web-btn').addEventListener('click', function() {
-    eyedropperActive = !eyedropperActive;
-    
-    if (eyedropperActive) {
-      document.body.style.cursor = 'crosshair';
-      this.style.background = '#10B981';
-      this.style.borderColor = '#059669';
-      document.addEventListener('click', handleEyedropper, true);
-    } else {
-      document.body.style.cursor = 'default';
-      this.style.background = '#5A6C7D';
-      this.style.borderColor = '#718096';
-      document.removeEventListener('click', handleEyedropper, true);
-    }
-  });
-
-  // Pick from Image button
-  document.getElementById('pick-from-image-btn').addEventListener('click', function() {
-    showNotification('Image picker coming soon!');
-  });
-
-  // Save color button
-  document.getElementById('save-color-btn').addEventListener('click', () => {
-    const { r, g, b } = currentColor;
-    addToHistory(r, g, b);
-    showNotification('Color saved to history!');
-  });
-
-  // Copy buttons
-  document.querySelectorAll('.copy-btn').forEach(btn => {
-    btn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      const format = btn.dataset.format;
-      const value = document.getElementById(`${format}-value`).textContent;
-      copyToClipboard(value, format.toUpperCase());
+      isDragging = true;
+      startX = e.clientX;
+      startY = e.clientY;
+      const rect = element.getBoundingClientRect();
+      startLeft = rect.left;
+      startTop = rect.top;
+      element.style.transform = 'none';
+      element.style.cursor = 'grabbing';
     });
 
-    // Hover effect
-    btn.addEventListener('mouseenter', () => {
-      btn.style.background = '#60A5FA';
+    document.addEventListener('mousemove', function(e) {
+      if (!isDragging) return;
+      const dx = e.clientX - startX;
+      const dy = e.clientY - startY;
+      element.style.left = (startLeft + dx) + 'px';
+      element.style.top = (startTop + dy) + 'px';
     });
-    btn.addEventListener('mouseleave', () => {
-      btn.style.background = '#718096';
-    });
-  });
 
-  // Value row hover effects
-  document.querySelectorAll('.color-value-row').forEach(row => {
-    row.addEventListener('mouseenter', () => {
-      row.style.borderColor = '#60A5FA';
-      row.style.transform = 'translateX(4px)';
-    });
-    row.addEventListener('mouseleave', () => {
-      row.style.borderColor = '#718096';
-      row.style.transform = 'translateX(0)';
-    });
-  });
-
-  // Button hover effects
-  const pickWebBtn = document.getElementById('pick-from-web-btn');
-  const pickImageBtn = document.getElementById('pick-from-image-btn');
-  
-  [pickWebBtn, pickImageBtn].forEach(btn => {
-    btn.addEventListener('mouseenter', function() {
-      if (!eyedropperActive || this !== pickWebBtn) {
-        this.style.background = 'rgba(255,255,255,0.15)';
-        this.style.borderColor = '#60A5FA';
+    document.addEventListener('mouseup', function() {
+      if (isDragging) {
+        isDragging = false;
+        element.style.cursor = 'default';
       }
     });
-    btn.addEventListener('mouseleave', function() {
-      if (!eyedropperActive || this !== pickWebBtn) {
-        this.style.background = 'rgba(255,255,255,0.08)';
-        this.style.borderColor = 'rgba(255,255,255,0.15)';
-      }
-    });
-  });
+  }
 
-  // Close panel
-  document.getElementById('close-color-panel').addEventListener('click', () => {
-    panel.remove();
-    document.body.style.cursor = 'default';
-    document.removeEventListener('click', handleEyedropper, true);
-    browserAPI.storage.sync.set({ colorFinder: false });
-  });
-
-  // Hover effects for close button
-  const closeBtn = document.getElementById('close-color-panel');
-  closeBtn.addEventListener('mouseenter', () => {
-    closeBtn.style.background = 'rgba(255,255,255,0.2)';
-    closeBtn.style.color = '#fff';
-  });
-  closeBtn.addEventListener('mouseleave', () => {
-    closeBtn.style.background = 'rgba(255,255,255,0.1)';
-    closeBtn.style.color = '#CBD5E0';
-  });
-
-  // Initialize with a nice teal color
-  updateColorDisplay(32, 165, 172);
-  updateHistoryDisplay();
+  // Initialize
+  loadColorHistory();
+  createPanel();
 
   return {
     cleanup: () => {
-      panel.remove();
-      document.body.style.cursor = 'default';
-      document.removeEventListener('click', handleEyedropper, true);
+      if (panel) panel.remove();
+      if (magnifier) magnifier.remove();
+      deactivateEyedropper();
     }
   };
 }
@@ -3152,7 +3129,7 @@ function initFocusMode() {
           <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm-1-13h2v6h-2zm0 8h2v2h-2z"/>
         </svg>
       </div>
-      <div class="focus-mode-title">Focused YouTube</div>
+      <div class="focus-mode-title">YouTube Focus Mode</div>
       <button class="focus-mode-close" title="Close panel">×</button>
     </div>
     <div class="focus-mode-content">
@@ -3409,71 +3386,611 @@ function initFocusMode() {
 
 
 // ========== passive-watching.js ==========
+// Nuclear Mode - Website blocker with whitelist and timer
 function initPassiveWatching() {
-  let lastActivity = Date.now();
-  const INACTIVITY_THRESHOLD = 15 * 60 * 1000; // 15 minutes
-  let checkInterval;
+  const browserAPI = typeof browser !== 'undefined' ? browser : chrome;
+  
+  let panel = null;
+  let whitelist = [];
+  let timerEndTime = null;
+  let timerInterval = null;
+  let isActive = false;
 
-  const resetActivity = () => {
-    lastActivity = Date.now();
-  };
-
-  const checkInactivity = () => {
-    const inactive = Date.now() - lastActivity;
-    if (inactive >= INACTIVITY_THRESHOLD) {
-      showInactivityToast();
-      lastActivity = Date.now(); // Reset to avoid repeated toasts
+  // Load saved settings
+  browserAPI.storage.local.get(['nuclearMode'], (result) => {
+    if (result.nuclearMode) {
+      whitelist = result.nuclearMode.whitelist || [];
+      timerEndTime = result.nuclearMode.timerEndTime || null;
+      isActive = result.nuclearMode.isActive || false;
+      
+      if (isActive && timerEndTime) {
+        checkAndBlockSite();
+        startTimer();
+      }
     }
-  };
-
-  const showInactivityToast = () => {
-    const toast = document.createElement('div');
-    toast.style.cssText = `
-      position: fixed;
-      bottom: 20px;
-      right: 20px;
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-      color: white;
-      padding: 16px 20px;
-      border-radius: 8px;
-      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-      z-index: 999999;
-      max-width: 320px;
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-    `;
-    
-    toast.innerHTML = `
-      <div style="font-weight: 600; margin-bottom: 8px;">👀 Still watching?</div>
-      <div style="font-size: 13px; opacity: 0.95; margin-bottom: 12px;">
-        You've been watching without interaction. Want a summary or quiz?
-      </div>
-      <button id="dismiss-toast" style="background: rgba(255,255,255,0.2); border: none; color: white; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-size: 12px;">
-        Dismiss
-      </button>
-    `;
-    
-    document.body.appendChild(toast);
-    
-    document.getElementById('dismiss-toast').addEventListener('click', () => {
-      toast.remove();
-    });
-    
-    setTimeout(() => toast.remove(), 10000);
-  };
-
-  // Track activity
-  ['mousemove', 'scroll', 'click', 'keypress'].forEach(event => {
-    document.addEventListener(event, resetActivity, { passive: true });
   });
 
-  checkInterval = setInterval(checkInactivity, 60000); // Check every minute
+  // Listen for updates from other tabs
+  browserAPI.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    if (message.type === 'NUCLEAR_MODE_UPDATED') {
+      whitelist = message.data.whitelist || [];
+      timerEndTime = message.data.timerEndTime || null;
+      isActive = message.data.isActive || false;
+      
+      if (isActive && timerEndTime) {
+        checkAndBlockSite();
+        if (!timerInterval) startTimer();
+      } else {
+        deactivateNuclearMode();
+      }
+    }
+  });
+
+  // Save settings and notify other tabs
+  function saveSettings() {
+    const data = {
+      whitelist,
+      timerEndTime,
+      isActive
+    };
+    
+    browserAPI.storage.local.set({ nuclearMode: data });
+    
+    // Notify background to update all tabs
+    browserAPI.runtime.sendMessage({
+      type: 'NUCLEAR_MODE_UPDATE',
+      data: data
+    }).catch(() => {});
+  }
+
+  // Check if current site is blocked
+  function checkAndBlockSite() {
+    if (!isActive || !timerEndTime) return;
+    
+    const now = Date.now();
+    if (now > timerEndTime) {
+      // Timer expired
+      deactivateNuclearMode();
+      return;
+    }
+
+    const currentDomain = window.location.hostname;
+    const isWhitelisted = whitelist.some(site => {
+      const cleanSite = site.replace(/^https?:\/\//, '').replace(/^www\./, '');
+      const cleanCurrent = currentDomain.replace(/^www\./, '');
+      return cleanCurrent.includes(cleanSite) || cleanSite.includes(cleanCurrent);
+    });
+
+    if (!isWhitelisted) {
+      showBlockedPage();
+    }
+
+    // Add warning before closing browser/tab
+    enableCloseWarning();
+  }
+
+  // Prevent closing browser/tab with warning
+  function enableCloseWarning() {
+    window.addEventListener('beforeunload', handleBeforeUnload);
+  }
+
+  function disableCloseWarning() {
+    window.removeEventListener('beforeunload', handleBeforeUnload);
+  }
+
+  function handleBeforeUnload(e) {
+    if (!isActive || !timerEndTime) return;
+    
+    const timeLeft = Math.ceil((timerEndTime - Date.now()) / 1000 / 60);
+    if (timeLeft > 0) {
+      const message = `Nuclear Mode is active! ${timeLeft} minutes remaining. Are you sure you want to quit?`;
+      e.preventDefault();
+      e.returnValue = message;
+      return message;
+    }
+  }
+
+  // Show blocked page overlay
+  function showBlockedPage() {
+    const overlay = document.createElement('div');
+    overlay.id = 'nuclear-mode-block';
+    overlay.style.cssText = `
+      position: fixed; top: 0; left: 0; width: 100%; height: 100%; 
+      background: linear-gradient(135deg, #1F2937 0%, #111827 100%);
+      z-index: 999999999; display: flex; align-items: center; justify-content: center;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    `;
+
+    const timeLeft = Math.ceil((timerEndTime - Date.now()) / 1000 / 60);
+    
+    overlay.innerHTML = `
+      <div style="text-align: center; color: white; max-width: 500px; padding: 40px;">
+        <h1 style="font-size: 36px; margin: 0 0 16px 0; font-weight: 700;">Nuclear Mode Active</h1>
+        <p style="font-size: 18px; color: #9CA3AF; margin-bottom: 32px;">
+          This website is blocked. You can only access whitelisted sites.
+        </p>
+        <div style="background: rgba(255,255,255,0.1); padding: 20px; border-radius: 12px; margin-bottom: 24px;">
+          <div style="font-size: 14px; color: #D1D5DB; margin-bottom: 8px;">Time Remaining</div>
+          <div id="block-timer" style="font-size: 48px; font-weight: 700; color: #EF4444;">${timeLeft} min</div>
+        </div>
+        <div style="background: rgba(239, 68, 68, 0.1); border: 1px solid #EF4444; border-radius: 8px; padding: 16px; margin-bottom: 16px;">
+          <p style="font-size: 14px; color: #FCA5A5; margin: 0;">
+            Closing the browser will show a warning. Stay focused!
+          </p>
+        </div>
+        <p style="font-size: 14px; color: #6B7280;">
+          Stay focused on your whitelisted sites to complete your session.
+        </p>
+      </div>
+    `;
+
+    document.body.innerHTML = '';
+    document.body.appendChild(overlay);
+
+    // Prevent right-click and shortcuts
+    document.addEventListener('contextmenu', preventEscape, true);
+    document.addEventListener('keydown', preventEscapeKeys, true);
+
+    // Update timer
+    const updateBlockTimer = setInterval(() => {
+      const remaining = Math.ceil((timerEndTime - Date.now()) / 1000 / 60);
+      const timerEl = document.getElementById('block-timer');
+      if (timerEl) {
+        timerEl.textContent = remaining > 0 ? `${remaining} min` : 'Done!';
+      }
+      if (remaining <= 0) {
+        clearInterval(updateBlockTimer);
+        deactivateNuclearMode();
+        window.location.reload();
+      }
+    }, 1000);
+  }
+
+  // Prevent escape attempts
+  function preventEscape(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    return false;
+  }
+
+  function preventEscapeKeys(e) {
+    // Prevent: F12, Ctrl+Shift+I, Ctrl+Shift+J, Ctrl+U, Ctrl+W, Ctrl+T, Alt+F4
+    if (
+      e.key === 'F12' ||
+      (e.ctrlKey && e.shiftKey && (e.key === 'I' || e.key === 'J' || e.key === 'C')) ||
+      (e.ctrlKey && e.key === 'u') ||
+      (e.ctrlKey && e.key === 'w') ||
+      (e.ctrlKey && e.key === 't') ||
+      (e.altKey && e.key === 'F4')
+    ) {
+      e.preventDefault();
+      e.stopPropagation();
+      showWarningNotification('Nuclear Mode is active! Stay focused!');
+      return false;
+    }
+  }
+
+  function showWarningNotification(message) {
+    const notif = document.createElement('div');
+    notif.textContent = message;
+    notif.style.cssText = `
+      position: fixed; top: 20px; left: 50%; transform: translateX(-50%);
+      background: #EF4444; color: white; padding: 16px 24px; border-radius: 8px;
+      font-size: 16px; font-weight: 600; z-index: 9999999999;
+      box-shadow: 0 8px 24px rgba(239, 68, 68, 0.4);
+      animation: shake 0.5s;
+    `;
+    document.body.appendChild(notif);
+    setTimeout(() => notif.remove(), 3000);
+  }
+
+  // Create control panel
+  function createPanel() {
+    panel = document.createElement('div');
+    panel.id = 'nuclear-mode-panel';
+    panel.style.cssText = `
+      position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
+      width: 480px; min-height: 400px; background: linear-gradient(135deg, #1F2937 0%, #111827 100%);
+      border-radius: 16px; border: 1px solid #374151; box-shadow: 0 20px 60px rgba(0,0,0,0.6);
+      z-index: 9999999; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      color: #E5E7EB; overflow: hidden; display: flex; flex-direction: column;
+      resize: both; min-width: 400px; min-height: 350px;
+    `;
+
+    const currentDomain = window.location.hostname.replace(/^www\./, '');
+
+    panel.innerHTML = `
+      <div id="panel-header" style="background: linear-gradient(135deg, #374151 0%, #1F2937 100%); padding: 16px 20px; cursor: move; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid #374151; user-select: none;">
+        <div style="display: flex; align-items: center; gap: 12px;">
+          <h2 style="margin: 0; font-size: 18px; font-weight: 600; color: #F9FAFB;">Nuclear Mode</h2>
+        </div>
+        <button id="close-panel" style="background: transparent; border: none; color: #9CA3AF; cursor: pointer; font-size: 24px; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; border-radius: 6px; transition: all 0.2s;">×</button>
+      </div>
+
+      <div style="padding: 20px; flex: 1; overflow-y: auto;">
+        <div style="margin-bottom: 24px;">
+          <h3 style="font-size: 14px; font-weight: 600; color: #D1D5DB; margin: 0 0 12px 0; text-transform: uppercase; letter-spacing: 0.5px;">Whitelist</h3>
+          <div style="display: flex; gap: 8px; margin-bottom: 12px;">
+            <input type="text" id="whitelist-input" placeholder="example.com" style="flex: 1; background: rgba(255,255,255,0.05); border: 1px solid #374151; border-radius: 8px; padding: 10px 14px; color: #E5E7EB; font-size: 14px; outline: none;">
+            <button id="add-whitelist" style="background: #3B82F6; color: white; border: none; padding: 10px 20px; border-radius: 8px; cursor: pointer; font-size: 14px; font-weight: 600; transition: all 0.2s;">Add</button>
+          </div>
+          <button id="add-current-site" style="width: 100%; background: rgba(59, 130, 246, 0.1); color: #60A5FA; border: 1px solid #3B82F6; padding: 10px; border-radius: 8px; cursor: pointer; font-size: 13px; margin-bottom: 12px; transition: all 0.2s;">
+            Add Current Site (${currentDomain})
+          </button>
+          <div id="whitelist-container" style="display: flex; flex-direction: column; gap: 8px; max-height: 200px; overflow-y: auto;">
+            ${whitelist.length === 0 ? '<div style="text-align: center; padding: 20px; color: #6B7280; font-size: 14px;">No whitelisted sites yet</div>' : ''}
+          </div>
+        </div>
+
+        <div style="margin-bottom: 24px;">
+          <h3 style="font-size: 14px; font-weight: 600; color: #D1D5DB; margin: 0 0 12px 0; text-transform: uppercase; letter-spacing: 0.5px;">Timer</h3>
+          <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 12px;">
+            <button class="timer-preset" data-minutes="15" style="background: rgba(255,255,255,0.05); border: 1px solid #374151; color: #E5E7EB; padding: 12px; border-radius: 8px; cursor: pointer; font-size: 14px; transition: all 0.2s;">15m</button>
+            <button class="timer-preset" data-minutes="30" style="background: rgba(255,255,255,0.05); border: 1px solid #374151; color: #E5E7EB; padding: 12px; border-radius: 8px; cursor: pointer; font-size: 14px; transition: all 0.2s;">30m</button>
+            <button class="timer-preset" data-minutes="60" style="background: rgba(255,255,255,0.05); border: 1px solid #374151; color: #E5E7EB; padding: 12px; border-radius: 8px; cursor: pointer; font-size: 14px; transition: all 0.2s;">1h</button>
+            <button class="timer-preset" data-minutes="120" style="background: rgba(255,255,255,0.05); border: 1px solid #374151; color: #E5E7EB; padding: 12px; border-radius: 8px; cursor: pointer; font-size: 14px; transition: all 0.2s;">2h</button>
+          </div>
+          <div style="display: flex; gap: 8px;">
+            <input type="number" id="custom-minutes" placeholder="Custom minutes" min="1" max="480" style="flex: 1; background: rgba(255,255,255,0.05); border: 1px solid #374151; border-radius: 8px; padding: 10px 14px; color: #E5E7EB; font-size: 14px; outline: none;">
+            <button id="set-custom-timer" style="background: rgba(255,255,255,0.05); border: 1px solid #374151; color: #E5E7EB; padding: 10px 20px; border-radius: 8px; cursor: pointer; font-size: 14px; transition: all 0.2s;">Set</button>
+          </div>
+        </div>
+
+        <button id="activate-nuclear" style="width: 100%; background: linear-gradient(135deg, #EF4444 0%, #DC2626 100%); color: white; border: none; padding: 14px; border-radius: 10px; cursor: pointer; font-size: 16px; font-weight: 600; box-shadow: 0 4px 12px rgba(239, 68, 68, 0.4); transition: all 0.2s;">
+          Activate Nuclear Mode
+        </button>
+
+        <button id="deactivate-nuclear" style="width: 100%; background: rgba(255,255,255,0.05); color: #9CA3AF; border: 1px solid #374151; padding: 14px; border-radius: 10px; cursor: pointer; font-size: 16px; font-weight: 600; margin-top: 12px; display: none; transition: all 0.2s;">
+          Stop Nuclear Mode
+        </button>
+      </div>
+
+      <div id="resize-handle" style="position: absolute; bottom: 0; right: 0; width: 20px; height: 20px; cursor: nwse-resize; background: linear-gradient(135deg, transparent 50%, #374151 50%); border-radius: 0 0 16px 0;"></div>
+    `;
+
+    document.body.appendChild(panel);
+    updateWhitelistDisplay();
+    attachEventListeners();
+    makeDraggable();
+    makeResizable();
+
+    if (isActive && timerEndTime) {
+      showActiveState();
+    }
+  }
+
+  // Update whitelist display
+  function updateWhitelistDisplay() {
+    const container = panel.querySelector('#whitelist-container');
+    if (whitelist.length === 0) {
+      container.innerHTML = '<div style="text-align: center; padding: 20px; color: #6B7280; font-size: 14px;">No whitelisted sites yet</div>';
+      return;
+    }
+
+    container.innerHTML = whitelist.map((site, index) => `
+      <div class="whitelist-item" style="display: flex; align-items: center; justify-content: space-between; background: rgba(255,255,255,0.05); border: 1px solid #374151; border-radius: 8px; padding: 10px 14px; transition: all 0.2s;">
+        <span style="color: #E5E7EB; font-size: 14px;">${site}</span>
+        <button class="remove-whitelist" data-index="${index}" style="background: rgba(239, 68, 68, 0.1); color: #EF4444; border: none; padding: 4px 10px; border-radius: 6px; cursor: pointer; font-size: 12px; transition: all 0.2s;">Remove</button>
+      </div>
+    `).join('');
+
+    // Add remove handlers
+    panel.querySelectorAll('.remove-whitelist').forEach(btn => {
+      btn.addEventListener('click', function() {
+        const index = parseInt(this.dataset.index);
+        whitelist.splice(index, 1);
+        saveSettings();
+        updateWhitelistDisplay();
+      });
+      btn.addEventListener('mouseenter', function() {
+        this.style.background = '#EF4444';
+        this.style.color = 'white';
+      });
+      btn.addEventListener('mouseleave', function() {
+        this.style.background = 'rgba(239, 68, 68, 0.1)';
+        this.style.color = '#EF4444';
+      });
+    });
+  }
+
+  // Attach event listeners
+  function attachEventListeners() {
+    // Close button
+    panel.querySelector('#close-panel').addEventListener('click', () => {
+      panel.remove();
+      browserAPI.storage.sync.set({ passiveWatching: false });
+    });
+
+    panel.querySelector('#close-panel').addEventListener('mouseenter', function() {
+      this.style.background = 'rgba(239, 68, 68, 0.1)';
+      this.style.color = '#EF4444';
+    });
+    panel.querySelector('#close-panel').addEventListener('mouseleave', function() {
+      this.style.background = 'transparent';
+      this.style.color = '#9CA3AF';
+    });
+
+    // Add whitelist
+    const addWhitelist = () => {
+      const input = panel.querySelector('#whitelist-input');
+      const site = input.value.trim().replace(/^https?:\/\//, '').replace(/^www\./, '');
+      if (site && !whitelist.includes(site)) {
+        whitelist.push(site);
+        saveSettings();
+        updateWhitelistDisplay();
+        input.value = '';
+      }
+    };
+
+    panel.querySelector('#add-whitelist').addEventListener('click', addWhitelist);
+    panel.querySelector('#whitelist-input').addEventListener('keypress', (e) => {
+      if (e.key === 'Enter') addWhitelist();
+    });
+
+    // Add current site
+    panel.querySelector('#add-current-site').addEventListener('click', function() {
+      const currentDomain = window.location.hostname.replace(/^www\./, '');
+      if (!whitelist.includes(currentDomain)) {
+        whitelist.push(currentDomain);
+        saveSettings();
+        updateWhitelistDisplay();
+      }
+    });
+
+    // Timer presets
+    panel.querySelectorAll('.timer-preset').forEach(btn => {
+      btn.addEventListener('click', function() {
+        const minutes = parseInt(this.dataset.minutes);
+        setTimer(minutes);
+      });
+      btn.addEventListener('mouseenter', function() {
+        this.style.background = '#3B82F6';
+        this.style.borderColor = '#3B82F6';
+      });
+      btn.addEventListener('mouseleave', function() {
+        this.style.background = 'rgba(255,255,255,0.05)';
+        this.style.borderColor = '#374151';
+      });
+    });
+
+    // Custom timer
+    panel.querySelector('#set-custom-timer').addEventListener('click', () => {
+      const minutes = parseInt(panel.querySelector('#custom-minutes').value);
+      if (minutes > 0) {
+        setTimer(minutes);
+      }
+    });
+
+    // Activate nuclear mode
+    panel.querySelector('#activate-nuclear').addEventListener('click', activateNuclearMode);
+    panel.querySelector('#deactivate-nuclear').addEventListener('click', deactivateNuclearMode);
+  }
+
+  // Set timer
+  function setTimer(minutes) {
+    timerEndTime = Date.now() + (minutes * 60 * 1000);
+    saveSettings();
+    updateTimerDisplay();
+    startTimer();
+  }
+
+  // Start timer countdown
+  function startTimer() {
+    if (timerInterval) clearInterval(timerInterval);
+    
+    timerInterval = setInterval(() => {
+      updateFloatingTimer();
+      
+      if (Date.now() >= timerEndTime) {
+        clearInterval(timerInterval);
+        deactivateNuclearMode();
+      }
+    }, 1000);
+  }
+
+  // Activate nuclear mode
+  function activateNuclearMode() {
+    if (whitelist.length === 0) {
+      alert('Please add at least one website to the whitelist!');
+      return;
+    }
+    if (!timerEndTime) {
+      alert('Please set a timer first!');
+      return;
+    }
+
+    isActive = true;
+    saveSettings();
+    showActiveState();
+    checkAndBlockSite();
+    
+    // Close main panel and show floating timer
+    if (panel) panel.remove();
+    createFloatingTimer();
+  }
+
+  // Create floating timer window
+  let floatingTimer = null;
+  function createFloatingTimer() {
+    floatingTimer = document.createElement('div');
+    floatingTimer.id = 'nuclear-floating-timer';
+    floatingTimer.style.cssText = `
+      position: fixed; top: 20px; right: 20px; width: 200px; min-height: 100px;
+      background: linear-gradient(135deg, #1F2937 0%, #111827 100%);
+      border-radius: 12px; border: 1px solid #374151;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.6); z-index: 9999998;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      color: #E5E7EB; padding: 16px; resize: both; overflow: hidden;
+      min-width: 180px; min-height: 90px;
+    `;
+
+    floatingTimer.innerHTML = `
+      <div id="timer-header" style="cursor: move; user-select: none; margin-bottom: 12px;">
+        <div style="font-size: 12px; color: #9CA3AF; text-transform: uppercase; letter-spacing: 1px; font-weight: 600;">Nuclear Mode</div>
+      </div>
+      <div style="text-align: center;">
+        <div id="floating-timer-value" style="font-size: 48px; font-weight: 700; color: #EF4444; line-height: 1;">--:--</div>
+        <div style="font-size: 11px; color: #6B7280; margin-top: 8px;">Time Remaining</div>
+      </div>
+    `;
+
+    document.body.appendChild(floatingTimer);
+    updateFloatingTimer();
+    makeFloatingTimerDraggable();
+  }
+
+  // Update floating timer display
+  function updateFloatingTimer() {
+    if (!floatingTimer) return;
+    
+    const value = floatingTimer.querySelector('#floating-timer-value');
+    if (!value) return;
+
+    const remaining = Math.max(0, timerEndTime - Date.now());
+    const minutes = Math.floor(remaining / 60000);
+    const seconds = Math.floor((remaining % 60000) / 1000);
+    value.textContent = `${minutes}:${seconds.toString().padStart(2, '0')}`;
+  }
+
+  // Make floating timer draggable
+  function makeFloatingTimerDraggable() {
+    const header = floatingTimer.querySelector('#timer-header');
+    let isDragging = false;
+    let startX, startY, startLeft, startTop;
+
+    header.addEventListener('mousedown', (e) => {
+      isDragging = true;
+      startX = e.clientX;
+      startY = e.clientY;
+      const rect = floatingTimer.getBoundingClientRect();
+      startLeft = rect.left;
+      startTop = rect.top;
+      header.style.cursor = 'grabbing';
+    });
+
+    document.addEventListener('mousemove', (e) => {
+      if (!isDragging) return;
+      const dx = e.clientX - startX;
+      const dy = e.clientY - startY;
+      floatingTimer.style.left = (startLeft + dx) + 'px';
+      floatingTimer.style.top = (startTop + dy) + 'px';
+      floatingTimer.style.right = 'auto';
+    });
+
+    document.addEventListener('mouseup', () => {
+      if (isDragging) {
+        isDragging = false;
+        header.style.cursor = 'move';
+      }
+    });
+  }
+
+  // Deactivate nuclear mode
+  function deactivateNuclearMode() {
+    isActive = false;
+    timerEndTime = null;
+    if (timerInterval) clearInterval(timerInterval);
+    disableCloseWarning();
+    saveSettings();
+    
+    if (panel) {
+      panel.querySelector('#activate-nuclear').style.display = 'block';
+      panel.querySelector('#deactivate-nuclear').style.display = 'none';
+    }
+
+    // Remove floating timer
+    if (floatingTimer) floatingTimer.remove();
+
+    // Remove block overlay if exists
+    const blockOverlay = document.getElementById('nuclear-mode-block');
+    if (blockOverlay) blockOverlay.remove();
+
+    // Remove event listeners
+    document.removeEventListener('contextmenu', preventEscape, true);
+    document.removeEventListener('keydown', preventEscapeKeys, true);
+  }
+
+  // Show active state
+  function showActiveState() {
+    if (panel) {
+      panel.querySelector('#activate-nuclear').style.display = 'none';
+      panel.querySelector('#deactivate-nuclear').style.display = 'block';
+    }
+  }
+
+  // Make panel draggable
+  function makeDraggable() {
+    const header = panel.querySelector('#panel-header');
+    let isDragging = false;
+    let startX, startY, startLeft, startTop;
+
+    header.addEventListener('mousedown', (e) => {
+      if (e.target.id === 'close-panel' || e.target.closest('#close-panel')) return;
+      isDragging = true;
+      startX = e.clientX;
+      startY = e.clientY;
+      const rect = panel.getBoundingClientRect();
+      startLeft = rect.left;
+      startTop = rect.top;
+      panel.style.transform = 'none';
+      header.style.cursor = 'grabbing';
+    });
+
+    document.addEventListener('mousemove', (e) => {
+      if (!isDragging) return;
+      const dx = e.clientX - startX;
+      const dy = e.clientY - startY;
+      panel.style.left = (startLeft + dx) + 'px';
+      panel.style.top = (startTop + dy) + 'px';
+    });
+
+    document.addEventListener('mouseup', () => {
+      if (isDragging) {
+        isDragging = false;
+        header.style.cursor = 'move';
+      }
+    });
+  }
+
+  // Make panel resizable
+  function makeResizable() {
+    const handle = panel.querySelector('#resize-handle');
+    let isResizing = false;
+    let startX, startY, startWidth, startHeight;
+
+    handle.addEventListener('mousedown', (e) => {
+      isResizing = true;
+      startX = e.clientX;
+      startY = e.clientY;
+      startWidth = panel.offsetWidth;
+      startHeight = panel.offsetHeight;
+      e.preventDefault();
+      e.stopPropagation();
+    });
+
+    document.addEventListener('mousemove', (e) => {
+      if (!isResizing) return;
+      const dx = e.clientX - startX;
+      const dy = e.clientY - startY;
+      panel.style.width = Math.max(400, startWidth + dx) + 'px';
+      panel.style.height = Math.max(350, startHeight + dy) + 'px';
+    });
+
+    document.addEventListener('mouseup', () => {
+      isResizing = false;
+    });
+  }
+
+  // Initialize
+  createPanel();
 
   return {
     cleanup: () => {
-      clearInterval(checkInterval);
-      ['mousemove', 'scroll', 'click', 'keypress'].forEach(event => {
-        document.removeEventListener(event, resetActivity);
-      });
+      if (panel) panel.remove();
+      if (timerInterval) clearInterval(timerInterval);
+      disableCloseWarning();
+      document.removeEventListener('contextmenu', preventEscape, true);
+      document.removeEventListener('keydown', preventEscapeKeys, true);
     }
   };
 }

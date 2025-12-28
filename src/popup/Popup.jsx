@@ -37,7 +37,7 @@ const Popup = () => {
   return (
     <div className="bg-gray-900 min-h-full text-gray-100">
       <div className="bg-gray-800 border-b border-gray-700 p-4">
-        <h1 className="text-lg font-semibold text-white">Dev Productivity Suite</h1>
+        <h1 className="text-lg font-semibold text-white">ExPro</h1>
         <p className="text-xs text-gray-400 mt-1">Control Center</p>
       </div>
 
