@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import Section from '../components/Section';
 import Toggle from '../components/Toggle';
 import AWSAgent from '../components/AWSAgent';
+import { API_CONFIG } from '../../config/api';
 
 const DeveloperTools = ({ expanded, onToggle, toggles, onToggleChange }) => {
   const [showGitHubAgent, setShowGitHubAgent] = useState(false);
@@ -16,7 +17,7 @@ const DeveloperTools = ({ expanded, onToggle, toggles, onToggleChange }) => {
   const [queryInput, setQueryInput] = useState('');
   const [sources, setSources] = useState([]);
   const [error, setError] = useState('');
-  const [apiUrl, setApiUrl] = useState('http://localhost:3000/api/v1');
+  const [apiUrl, setApiUrl] = useState(API_CONFIG.baseUrl);
   const [scopeType, setScopeType] = useState('full');
   const [folderPath, setFolderPath] = useState('');
   const [stats, setStats] = useState(null);

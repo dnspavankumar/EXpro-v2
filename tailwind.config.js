@@ -1,7 +1,9 @@
-export default {
+module.exports = {
   content: [
-    "./popup.html",
-    "./src/**/*.{js,jsx}"
+    "./pages/**/*.{js,ts,jsx,tsx}",
+    "./components/**/*.{js,ts,jsx,tsx}",
+    "./src/**/*.{js,jsx,ts,tsx}",
+    "./popup.html"
   ],
   theme: {
     extend: {}

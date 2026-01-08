@@ -4,3 +4,24 @@ dist/
 *.log
 .vscode/
 .idea/
+
+# Next.js
+/.next/
+/out/
+
+# Local env files
+.env*.local
+.env
+
+# TypeScript
+*.tsbuildinfo
+next-env.d.ts
+
+# Cache
+cache/
+.cache/
+
+# Old microservice
+Github-Client-Microservice/node_modules/
+Github-Client-Microservice/dist/
+Github-Client-Microservice/cache/

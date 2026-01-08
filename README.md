@@ -1,29 +1,68 @@
-# Dev Productivity Suite - Chrome Extension
+# Dev Productivity Suite - Chrome Extension + Next.js
 
-A hackathon Chrome Extension (Manifest V3) with developer tools, learning utilities, and productivity features.
+A Chrome Extension (Manifest V3) with developer tools, learning utilities, productivity features, and an integrated GitHub RAG agent powered by Next.js.
+
+## 🎉 New: Integrated GitHub Agent
+
+The GitHub agent is now built into this Next.js application - no separate backend needed!
 
 ## 🏗️ Architecture
 
-- **Popup UI**: React + Tailwind CSS control center
-- **Background**: Service Worker for background tasks
-- **Content Scripts**: Feature injection into web pages
-- **Storage**: chrome.storage.sync for toggles, chrome.storage.local for data
+- **Next.js App**: Web interface and API routes (`pages/`)
+- **GitHub Agent API**: Integrated API routes (`pages/api/github/`)
+- **Chrome Extension**: Browser extension (`src/`, `manifest.json`)
+- **Shared Services**: Core functionality (`lib/services/`)
 
 ## 🚀 Quick Start
 
+### 1. Install Dependencies
+
 ```bash
-# Install dependencies
 npm install
+```
 
-# Build extension
-npm run build
+### 2. Configure Environment
 
-# Load in Chrome
-1. Open chrome://extensions/
+Create `.env.local` with your credentials:
+
+```env
+# Groq Configuration (for LLM)
+GROQ_API_KEY=your_groq_api_key
+GROQ_MODEL=llama-3.1-8b-instant
+
+# Pinecone Configuration (for vector storage)
+PINECONE_API_KEY=your_pinecone_api_key
+PINECONE_ENVIRONMENT=us-east-1
+PINECONE_INDEX_NAME=github-client
+
+# Redis Configuration (optional)
+REDIS_HOST=localhost
+REDIS_PORT=6379
+REDIS_PASSWORD=your_redis_password
+
+# GitHub Token (optional, for private repos)
+GITHUB_TOKEN=your_github_token
+```
+
+### 3. Start Development Server
+
+```bash
+npm run dev
+```
+
+Visit `http://localhost:3000` to see the web interface.
+
+### 4. Build Chrome Extension
+
+```bash
+npm run build:extension
+```
+
+Then load the `dist` folder in Chrome:
+1. Open `chrome://extensions/`
 2. Enable "Developer mode"
 3. Click "Load unpacked"
 4. Select the `dist` folder
-```
 
 ## 📦 Features
 
@@ -33,132 +72,146 @@ npm run build
 - ✅ **Check SEO** - Basic SEO analysis overlay
 - ✅ **Font Finder** - Hover to see font details
 - ✅ **Color Finder** - Click to copy color values
-- 🔌 **GitHub Agent** - Integration hook (teammate implementation)
-- 🔌 **AWS Agent** - Integration hook (teammate implementation)
+- ✅ **GitHub Agent** - Semantic code search and RAG-based Q&A
 
 ### Learning Tools
 - ✅ **Ad Blocker** - Declarative Net Request API
 - ✅ **Speed Improver** - Defer images, lightweight UI
-- 🔌 **Learning Agent** - Integration hook (teammate implementation)
 
 ### Productivity Tools
 - ✅ **Focus Mode** - Hide distractions, dim page
-- ✅ **Focus Detection** - Detect mobile phone usage via webcam (Roboflow API)
-- ✅ **Nuclear Mode** - Block all sites except whitelisted ones with timer
-- ✅ **Passive Watching Detector** - Inactivity detection with gentle prompts
-- ✅ **Energy-Aware Scheduling** - Manual energy level selection with suggestions
+- ✅ **Focus Detection** - Detect mobile phone usage via webcam
+- ✅ **Nuclear Mode** - Block all sites except whitelisted ones
+- ✅ **Passive Watching Detector** - Inactivity detection
+- ✅ **Energy-Aware Scheduling** - Manual energy level selection
 
-### Storage
-- 📊 **Repo Memory** - View and manage stored repos
-- 📚 **Learning History** - Track learning activities
-- 💾 **Saved Sessions** - Manage saved browser sessions
-- 🗑️ **Clear All Data** - One-click data clearing
+## 🔌 GitHub Agent API
 
-## 🔌 Integration Hooks
+### Available Endpoints
 
-The extension provides placeholder hooks for three agents to be implemented by teammates:
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/github/health` | Health check |
+| GET | `/api/github/stats` | System statistics |
+| POST | `/api/github/ingest` | Ingest a repository |
+| POST | `/api/github/query` | Query a repository |
+| GET | `/api/github/status/:jobId` | Check job status |
+| DELETE | `/api/github/repo/:repoId` | Delete repository |
 
-```javascript
-// GitHub Agent Hook
-if (toggles.githubAgent && isGithubPage) {
-  // GitHub Agent will mount here
-}
+### Example Usage
 
-// AWS Agent Hook
-if (toggles.awsAgent && isAWSPage) {
-  // AWS Agent will mount here
-}
+**Ingest a Repository:**
+```bash
+curl -X POST http://localhost:3000/api/github/ingest \
+  -H "Content-Type: application/json" \
+  -d '{"repoUrl": "https://github.com/user/repo", "branch": "main"}'
+```
 
-// Learning Agent Hook
-if (toggles.learningAgent) {
-  // Learning Agent will mount here
-}
+**Query a Repository:**
+```bash
+curl -X POST http://localhost:3000/api/github/query \
+  -H "Content-Type: application/json" \
+  -d '{"repoId": "user/repo", "query": "How does authentication work?"}'
 ```
 
 ## 📁 Project Structure
 
 ```
-├── manifest.json              # Extension manifest (MV3)
-├── popup.html                 # Popup entry point
+├── pages/
+│   ├── api/github/          # GitHub agent API routes
+│   ├── index.tsx            # Home page
+│   ├── _app.tsx
+│   └── _document.tsx
+├── lib/
+│   ├── services/            # Core services (Git, RAG, Embeddings, etc.)
+│   ├── config.ts
+│   ├── types.ts
+│   ├── logger.ts
+│   └── validation.ts
 ├── src/
-│   ├── popup/                 # React popup UI
-│   │   ├── Popup.jsx         # Main popup component
-│   │   ├── components/       # Reusable UI components
-│   │   └── sections/         # Feature sections
-│   ├── background/           # Service worker
-│   │   ├── service-worker.js
-│   │   └── handlers/         # Background handlers
-│   └── content/              # Content scripts
-│       ├── content-script.js # Main content script
-│       └── features/         # Feature implementations
-├── rules/                    # DNR rules for ad blocking
-└── vite.config.js           # Build configuration
+│   ├── popup/               # Chrome extension popup
+│   ├── background/          # Service worker
+│   └── content/             # Content scripts
+├── manifest.json            # Extension manifest
+├── vite.config.js           # Extension build config
+└── next.config.js           # Next.js config
 ```
-
-## 🎯 Toggle System
-
-All features are toggle-based and persist across sessions:
-
-1. User toggles feature in popup
-2. State saved to `chrome.storage.sync`
-3. Background worker notified
-4. Content scripts receive update
-5. Feature activated/deactivated on page
-
-## 🔥 Nuclear Mode
-
-Nuclear Mode is a powerful focus tool that blocks all websites except those you've whitelisted:
-
-- **Whitelist Management**: Add/remove sites you need to access
-- **Timer-Based**: Set duration for focus sessions (1-480 minutes)
-- **Complete Blocking**: Non-whitelisted sites show "SITE NUKED" page
-- **Auto-Disable**: Automatically turns off when timer expires
-- **Beautiful UI**: Clear blocked page with timer countdown
-
-**Quick Start:**
-1. Enable "Nuclear Mode" toggle in Productivity Tools
-2. Add sites to whitelist (e.g., `github.com`, `stackoverflow.com`)
-3. Set timer duration
-4. Click "Activate Nuclear Mode"
-
-See [NUCLEAR_MODE_GUIDE.md](NUCLEAR_MODE_GUIDE.md) for detailed usage instructions.
 
 ## 🛠️ Development
 
 ```bash
-# Development mode (watch)
+# Start Next.js dev server
 npm run dev
 
-# Production build
+# Build Chrome extension
+npm run build:extension
+
+# Build Next.js for production
 npm run build
+
+# Start production server
+npm start
 ```
 
-## ✅ MVP Checklist
+## 🚢 Deployment
 
-- [x] Manifest V3 setup
-- [x] React + Tailwind popup UI
-- [x] Toggle system with persistence
-- [x] Background service worker
-- [x] Content script injection
-- [x] Clear Cache (working)
-- [x] Font Finder (working)
-- [x] Focus Mode (working)
-- [x] Color Finder (working)
-- [x] Edit Cookie (working)
-- [x] Check SEO (working)
-- [x] Ad Blocker (working)
-- [x] Speed Improver (working)
-- [x] Passive Watching Detector (working)
-- [x] Energy-Aware Scheduling (working)
-- [x] Focus Detection (working)
-- [x] Nuclear Mode (working)
-- [x] Storage UI (working)
-- [x] Integration hooks for GitHub/AWS/Learning agents
+### Vercel (Recommended)
+```bash
+vercel deploy
+```
 
-## 🎨 Design Principles
+### Docker
+```bash
+docker build -t dev-productivity-suite .
+docker run -p 3000:3000 dev-productivity-suite
+```
 
-- Minimal, clean popup UI
-- No heavy UI inside popup
-- Real UI appears inside webpages
-- Toggle-based feature control
-- Professional, demo-friendly UX
+## 📚 Documentation
+
+- [Migration Guide](MIGRATION_GUIDE.md) - Details on the GitHub agent migration
+- [Nuclear Mode Guide](NUCLEAR_MODE_GUIDE.md) - Focus mode documentation
+
+## 🎯 Tech Stack
+
+- **Frontend**: React, Tailwind CSS
+- **Backend**: Next.js API Routes
+- **Vector DB**: Pinecone
+- **LLM**: Groq (Llama 3.1)
+- **Embeddings**: Local (Xenova/transformers.js)
+- **Cache**: Redis (optional) or in-memory
+- **Extension**: Chrome Manifest V3
+
+## ✅ What's New
+
+- ✅ GitHub agent integrated into Next.js (no separate backend!)
+- ✅ Unified development experience
+- ✅ Simplified deployment
+- ✅ Better type safety with shared types
+- ✅ Hot reload for both API and frontend
+
+## 🔧 Troubleshooting
+
+### Port Already in Use
+Change the port in `.env.local`:
+```env
+PORT=3001
+```
+
+### Module Not Found
+```bash
+rm -rf node_modules package-lock.json
+npm install
+```
+
+### TypeScript Errors
+```bash
+npx tsc --noEmit
+```
+
+## 📝 License
+
+MIT
+
+## 🤝 Contributing
+
+Contributions welcome! Please read the migration guide first to understand the new architecture.
