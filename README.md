@@ -43,6 +43,8 @@ npm run build
 
 ### Productivity Tools
 - ✅ **Focus Mode** - Hide distractions, dim page
+- ✅ **Focus Detection** - Detect mobile phone usage via webcam (Roboflow API)
+- ✅ **Nuclear Mode** - Block all sites except whitelisted ones with timer
 - ✅ **Passive Watching Detector** - Inactivity detection with gentle prompts
 - ✅ **Energy-Aware Scheduling** - Manual energy level selection with suggestions
 
@@ -103,6 +105,24 @@ All features are toggle-based and persist across sessions:
 4. Content scripts receive update
 5. Feature activated/deactivated on page
 
+## 🔥 Nuclear Mode
+
+Nuclear Mode is a powerful focus tool that blocks all websites except those you've whitelisted:
+
+- **Whitelist Management**: Add/remove sites you need to access
+- **Timer-Based**: Set duration for focus sessions (1-480 minutes)
+- **Complete Blocking**: Non-whitelisted sites show "SITE NUKED" page
+- **Auto-Disable**: Automatically turns off when timer expires
+- **Beautiful UI**: Clear blocked page with timer countdown
+
+**Quick Start:**
+1. Enable "Nuclear Mode" toggle in Productivity Tools
+2. Add sites to whitelist (e.g., `github.com`, `stackoverflow.com`)
+3. Set timer duration
+4. Click "Activate Nuclear Mode"
+
+See [NUCLEAR_MODE_GUIDE.md](NUCLEAR_MODE_GUIDE.md) for detailed usage instructions.
+
 ## 🛠️ Development
 
 ```bash
@@ -130,6 +150,8 @@ npm run build
 - [x] Speed Improver (working)
 - [x] Passive Watching Detector (working)
 - [x] Energy-Aware Scheduling (working)
+- [x] Focus Detection (working)
+- [x] Nuclear Mode (working)
 - [x] Storage UI (working)
 - [x] Integration hooks for GitHub/AWS/Learning agents
 

@@ -46,12 +46,17 @@ async function buildExtension() {
   copyFileSync('src/content/content-bundle.js', 'dist/content.js');
   
   console.log('Copying background script...');
-  copyFileSync('src/background/service-worker-bundle.js', 'dist/background.js');
+  copyFileSync('src/background/service-worker.js', 'dist/background.js');
   
   // Copy offscreen files for focus detection
   console.log('Copying offscreen files...');
   copyFileSync('src/offscreen.html', 'dist/offscreen.html');
   copyFileSync('src/offscreen.js', 'dist/offscreen.js');
+  
+  // Copy nuclear mode blocked page
+  console.log('Copying nuclear mode blocked page...');
+  copyFileSync('src/nuclear-blocked.html', 'dist/nuclear-blocked.html');
+  copyFileSync('src/nuclear-blocked-simple.html', 'dist/nuclear-blocked-simple.html');
   
   console.log('✅ Build complete! Load the dist/ folder in Chrome.');
   console.log('');

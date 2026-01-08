@@ -2,6 +2,7 @@ import React from 'react';
 import Section from '../components/Section';
 import Toggle from '../components/Toggle';
 import FocusDetection from '../components/FocusDetection';
+import NuclearModeSimple from '../components/NuclearModeSimple';
 
 const ProductivityTools = ({ expanded, onToggle, toggles, onToggleChange }) => {
   return (
@@ -23,8 +24,11 @@ const ProductivityTools = ({ expanded, onToggle, toggles, onToggleChange }) => {
       {/* Focus Detection UI - Only show when enabled */}
       {toggles.focusDetection && <FocusDetection />}
       
+      {/* Nuclear Mode - Simple Version with Toggle */}
+      <NuclearModeSimple />
+      
       <Toggle
-        label="Nuclear Mode"
+        label="Passive Watching"
         description="Detect inactivity and suggest actions"
         enabled={toggles.passiveWatching || false}
         onChange={(val) => onToggleChange('passiveWatching', val)}
